@@ -91,6 +91,7 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int64_t wakeup_tick; /* 스레드를 깨우기 위한 틱 수 */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -108,6 +109,8 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+extern struct list sleep_list; // sleep 상태인 스레드들을 담는 리스트
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

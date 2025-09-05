@@ -87,14 +87,38 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
+/* insert_ordered 함수에 사용할 비교 함수 */
+static bool wakeup_tick_compare(const struct list_elem* a, const struct list_elem* b) {
+	// 두 스레드의 wakeup_tick 값을 비교해 더 작은 값을 가진 스레드를 앞에 오도록 하기
+	struct thread* thread_a = list_entry(a, struct thread, elem);
+	struct thread* thread_b = list_entry(b, struct thread, elem);
+
+	return thread_a->wakeup_tick < thread_b->wakeup_tick;
+}
+
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
+	struct thread* current_thread;
+	enum intr_level old_level;
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	ASSERT(intr_get_level() == INTR_ON);
+
+	// 음수나 0이 들어오면 바로 리턴
+	if(ticks <= 0)
+	{
+		return;
+	}
+
+	// 먼저 인터럽트 끄기(핸들러와의 레이스 컨디션 방지)
+	old_level = intr_disable();
+
+	current_thread = thread_current();
+	current_thread->wakeup_tick = (timer_ticks()) + ticks;
+	list_insert_ordered(&sleep_list, &current_thread->elem, wakeup_tick_compare, NULL);
+	thread_block(); // 현재 스레드를 block 상태로 바꾸기
+
+	intr_set_level(old_level); // 인터럽트 다시 켜주기
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +150,24 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	// sleep_list에 있는 스레드들 중에서 깨워야 할 스레드가 있는지 확인
+	struct list_elem* elem = list_begin(&sleep_list);
+	while(elem != list_end(&sleep_list))
+	{
+		struct thread* td = list_entry(elem, struct thread, elem);
+
+		if(td->wakeup_tick <= ticks)
+		{
+			elem = list_remove(elem); // 깨울 스레드는 리스트에서 제거하고 다음 엘리먼트로 이동
+			thread_unblock(td); // 스레드 깨우기
+		}
+		// 오름차순 정렬 상태에서 ticks보다 큰 wakeup_tick을 가진 스레드부터는 볼 이유 없음
+		else
+		{
+			break;
+		}
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
