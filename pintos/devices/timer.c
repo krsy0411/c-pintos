@@ -88,7 +88,7 @@ timer_elapsed (int64_t then) {
 }
 
 /* insert_ordered 함수에 사용할 비교 함수 */
-static bool wakeup_tick_compare(const struct list_elem* a, const struct list_elem* b) {
+static bool wakeup_tick_compare(const struct list_elem* a, const struct list_elem* b, void *aux UNUSED) {
 	// 두 스레드의 wakeup_tick 값을 비교해 더 작은 값을 가진 스레드를 앞에 오도록 하기
 	struct thread* thread_a = list_entry(a, struct thread, elem);
 	struct thread* thread_b = list_entry(b, struct thread, elem);
