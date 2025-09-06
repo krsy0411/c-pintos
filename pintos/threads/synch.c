@@ -86,8 +86,8 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_insert_ordered (&sema->waiters, &thread_current ()->elem, priority_compare, NULL);
-		thread_block ();
+		list_push_back(&sema->waiters, &(thread_current()->elem));
+		thread_block();
 	}
 	sema->value--;
 	intr_set_level (old_level);
@@ -129,10 +129,27 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	// if (!list_empty (&sema->waiters))
+	// 	thread_unblock (list_entry (list_pop_front (&sema->waiters),
+	// 				struct thread, elem));
+	// sema->value++;
+	// intr_set_level (old_level);
+
 	sema->value++;
+	if(!list_empty (&sema->waiters))
+	{
+		list_sort(&sema->waiters, priority_compare, NULL); // 정렬(우선순위 기준 내림차순)
+
+		struct thread* unblocked_thread = list_entry(list_pop_front (&sema->waiters), struct thread, elem);
+		thread_unblock(unblocked_thread);
+		
+		// 깨운 스레드의 우선순위가 현재 스레드보다 높으면 양보(선점)
+		if(unblocked_thread->priority > thread_current()->priority)
+		{
+			thread_yield();
+		}
+	}
+
 	intr_set_level (old_level);
 }
 
@@ -215,8 +232,23 @@ void donate_priority(struct thread* giver, struct thread* receiver)
 		// 우선순위 기부
 		current_receiver->priority = current_giver->priority;
 		
+		// 중복 방지 : receiver의 donation_list에 이미 giver가 있으면 제거
+		if(!list_empty(&current_receiver->donation_list))
+		{
+			struct list_elem* element = list_begin(&current_receiver->donation_list);
+			while(element != list_end(&current_receiver->donation_list))
+			{
+				struct thread* td = list_entry(element, struct thread, donation_elem);
+				if(td == current_giver)
+				{
+					// 이미 기부한 기록이 있으면 제거
+					list_remove(element);
+					break;
+				}
+				element = list_next(element);
+			}
+		}
 		// receiver의 donation_list에 giver 추가 (receiver가 giver로부터 기부받았다는 기록)
-		list_remove(&current_receiver->donation_elem); // 중복 추가 방지
 		list_insert_ordered(&current_receiver->donation_list, &current_giver->donation_elem, donation_priority_compare, NULL);
 		
 		// 다음 단계로 진행 (nested donation)
