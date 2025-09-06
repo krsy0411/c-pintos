@@ -32,6 +32,26 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+/* 우선순위 비교 함수 (semaphore waiters용) */
+static bool
+priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+	struct thread *thread_a = list_entry (a, struct thread, elem);
+	struct thread *thread_b = list_entry (b, struct thread, elem);
+	
+	return thread_a->priority > thread_b->priority;
+}
+
+/* 우선순위 비교 함수 (donation list용) */
+static bool
+donation_priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+	struct thread *thread_a = list_entry (a, struct thread, donation_elem);
+	struct thread *thread_b = list_entry (b, struct thread, donation_elem);
+	
+	return thread_a->priority > thread_b->priority;
+}
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -66,7 +86,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered (&sema->waiters, &thread_current ()->elem, priority_compare, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -174,6 +194,45 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+void donate_priority(struct thread* giver, struct thread* receiver)
+{
+	if(receiver == NULL || giver == NULL) 
+		return;
+
+	int depth = 0; // 8단계 이상 기부 방지
+	struct thread* current_giver = giver;
+	struct thread* current_receiver = receiver;
+	
+	// 체인을 따라가면서 기부 수행
+	while(current_receiver != NULL && depth < 8)
+	{
+		// 기부할 필요가 없으면 중단
+		if(current_giver->priority <= current_receiver->priority)
+		{
+			break;
+		}
+			
+		// 우선순위 기부
+		current_receiver->priority = current_giver->priority;
+		
+		// receiver의 donation_list에 giver 추가 (receiver가 giver로부터 기부받았다는 기록)
+		list_remove(&current_receiver->donation_elem); // 중복 추가 방지
+		list_insert_ordered(&current_receiver->donation_list, &current_giver->donation_elem, donation_priority_compare, NULL);
+		
+		// 다음 단계로 진행 (nested donation)
+		if(current_receiver->waiting_lock != NULL && current_receiver->waiting_lock->holder != NULL)
+		{
+			current_giver = current_receiver;  // 현재 receiver가 다음 giver
+			current_receiver = current_receiver->waiting_lock->holder;
+			depth++;
+		}
+		else
+		{
+			break; // 더 이상 진행할 곳이 없음
+		}
+	}
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -188,7 +247,18 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	// lock 소유 스레드가 있으면 우선순위 기부
+	struct thread* current_thread = thread_current();
+	if(lock->holder != NULL)
+	{
+		current_thread->waiting_lock = lock;
+		donate_priority(current_thread, lock->holder);
+	}
+
 	sema_down (&lock->semaphore);
+	
+	// lock 획득 성공 후 정리
+	current_thread->waiting_lock = NULL;
 	lock->holder = thread_current ();
 }
 
@@ -211,6 +281,43 @@ lock_try_acquire (struct lock *lock) {
 	return success;
 }
 
+void remove_donations(struct lock *lock)
+{
+	struct thread* current_thread = thread_current();
+	struct list_elem* elem = list_begin(&current_thread->donation_list);
+
+	while(elem != list_end(&current_thread->donation_list))
+	{
+		struct thread* td = list_entry(elem, struct thread, donation_elem);
+
+		// td가 기다리는 lock이 인자로 받은 lock과 같다면, donation_list에서 제거
+		if(td->waiting_lock == lock)
+		{
+			elem = list_remove(elem);
+		} 
+		else
+		{
+			// 기다리던 lock이 아니면, 다음 원소로 이동
+			elem = list_next(elem);
+		}
+	}
+}
+
+void update_priority_of_thread(struct thread* t)
+{
+	// donation_list가 우선순위 순으로 정렬되어 있으므로, 첫 번째 요소가 가장 높은 우선순위를 가짐
+	if(!list_empty(&(t->donation_list)))
+	{
+		struct thread* highest_donor = list_entry(list_front(&t->donation_list), struct thread, donation_elem);
+		t->priority = (highest_donor->priority > t->base_priority) ? highest_donor->priority : t->base_priority;
+	}
+	else
+	{
+		// donation이 없으면 기본 우선순위로 복원
+		t->priority = t->base_priority;
+	}
+}
+
 /* Releases LOCK, which must be owned by the current thread.
    This is lock_release function.
 
@@ -222,6 +329,10 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	// donation 정리 및 우선순위 업데이트
+	remove_donations(lock);
+	update_priority_of_thread(thread_current());
+	
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }

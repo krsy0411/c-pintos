@@ -63,6 +63,7 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
+static bool priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -209,6 +210,12 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	/* 새로 생성된 스레드가 현재 스레드보다 우선순위가 높으면 양보 */
+	if (t->priority > thread_current()->priority)
+	{
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -242,7 +249,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, priority_compare, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -305,21 +312,87 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, priority_compare, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
+}
+
+// 우선순위 비교 함수(내림차순)
+static bool priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+	struct thread *thread_a = list_entry(a, struct thread, elem);
+	struct thread *thread_b = list_entry(b, struct thread, elem);
+
+	return thread_a->priority > thread_b->priority;
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	// 현재 스레드
+	struct thread* current_thread = thread_current();
+	current_thread->base_priority = new_priority;
+
+	// 인터럽트 끄기
+	enum intr_level old_level = intr_disable();
+
+	// donation이 적용된, 최종 우선순위 계산
+	// 나한테 기부한 스레드가 없다면, 기존 우선순위
+	if(list_empty(&current_thread->donation_list))
+	{
+		current_thread->priority = new_priority;
+	}
+	// 나한테 기부한 스레드가 있다면, 기부받은 우선순위와 기존 우선순위 중 더 높은 값을 최종 우선순위 값으로 설정
+	else
+	{
+		// donation_list는 우선순위 순으로 정렬된 상태(내림차순)
+		struct thread* highest_donated_thread = list_entry(list_front(&current_thread->donation_list), struct thread, donation_elem);
+
+		if(highest_donated_thread->priority > new_priority)
+		{
+			current_thread->priority = highest_donated_thread->priority;
+		}
+		else
+		{
+			current_thread->priority = new_priority;
+		}
+	}
+
+	// 현재 스레드의 우선순위가 최고가 아니라면, 즉시 CPU 양보
+	// ready_list는 우선순위 순으로 정렬된 상태(내림차순)
+	bool should_yield = false;
+	if(!list_empty(&ready_list))
+	{
+		struct thread *highest_priority_thread = list_entry(list_front(&ready_list), struct thread, elem);
+
+		if(current_thread->priority < highest_priority_thread->priority)
+		{
+			should_yield = true;
+		}
+	}
+
+	// 인터럽트 다시 켜기
+	intr_set_level(old_level);
+	
+	// yield는 인터럽트 복원 후에 수행
+	if(should_yield)
+	{
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	return thread_current ()->priority;
+	// 인터럽트 끄기
+	enum intr_level old_level = intr_disable();
+	struct thread* current_thread = thread_current(); // 현재 스레드
+
+	// 인터럽트 다시 켜기
+	intr_set_level(old_level);
+
+	// 이미 계산된(기부 상황이면 기부까지 반영된) 우선순위 값 반환
+	return current_thread->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -410,6 +483,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->base_priority = priority;
+	t->waiting_lock = NULL;
+	list_init(&t->donation_list);
 	t->magic = THREAD_MAGIC;
 }
 
