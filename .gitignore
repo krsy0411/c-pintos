@@ -31,3 +31,7 @@ core
 
 # VSCode
 .vscode/
+
+# JetBrains
+.idea
+CMakeLists.txt
