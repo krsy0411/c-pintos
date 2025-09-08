@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -54,6 +55,24 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+
+// 17.14 고정소수점 연산 매크로
+#define F (1 << 14) // 17.14 고정 소수점 방식 사용
+// 정수 → 고정소수점
+#define INT_TO_FP(n) ((n) * F)
+// 고정소수점 → 정수 (내림)
+#define FP_TO_INT(x) ((x) / F)
+// 고정소수점 → 정수 (반올림)
+#define FP_TO_INT_ROUND(x) (((x) + F / 2) / F)
+// 고정소수점 × 정수
+#define FP_MUL_INT(x, n) ((x) * (n))
+// 고정소수점 ÷ 정수
+#define FP_DIV_INT(x, n) ((x) / (n))
+// 고정소수점 × 고정소수점
+#define FP_MUL(x, y) (((int64_t)(x)) * (y) / F)
+// 고정소수점 ÷ 고정소수점
+#define FP_DIV(x, y) (((int64_t)(x)) * F / (y))
+static int64_t load_avg; // load_avg 값
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -134,6 +153,35 @@ thread_start (void) {
 
 	/* Wait for the idle thread to initialize idle_thread. */
 	sema_down (&idle_started);
+}
+
+void update_load_avg(void)
+{
+	int ready_threads = list_size(&ready_list);
+	if (thread_current() != idle_thread) {
+		ready_threads += 1;
+	}
+	// load_avg = (59/60) * load_avg + (1/60) * ready_threads
+	load_avg = FP_MUL(FP_DIV(INT_TO_FP(59), INT_TO_FP(60)), load_avg)
+			+ FP_MUL(FP_DIV(INT_TO_FP(1), INT_TO_FP(60)), INT_TO_FP(ready_threads));
+}
+
+void update_recent_cpu(struct thread* t)
+{
+	if (t == idle_thread) return;
+	// recent_cpu = (2*load_avg) / (2*load_avg + 1) * recent_cpu + nice
+	int64_t coef = FP_DIV(FP_MUL(INT_TO_FP(2), load_avg), FP_MUL(INT_TO_FP(2), load_avg) + INT_TO_FP(1));
+	t->recent_cpu = FP_MUL(coef, t->recent_cpu) + INT_TO_FP(t->nice);
+}
+
+void update_priority(struct thread* t)
+{
+	if (t == idle_thread) return;
+	// priority = PRI_MAX - (recent_cpu / 4) - (nice * 2)
+	int new_priority = FP_TO_INT_ROUND(INT_TO_FP(PRI_MAX) - FP_DIV_INT(t->recent_cpu, 4)) - (t->nice * 2);
+	if (new_priority > PRI_MAX) new_priority = PRI_MAX;
+	if (new_priority < PRI_MIN) new_priority = PRI_MIN;
+	t->priority = new_priority;
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -326,6 +374,31 @@ static bool priority_compare(const struct list_elem *a, const struct list_elem *
 	return thread_a->priority > thread_b->priority;
 }
 
+void calculate_and_set_priority_with_donation(struct thread* t, int new_priority)
+{
+	// donation이 적용된, 최종 우선순위 계산
+	// 나한테 기부한 스레드가 없다면, 기존 우선순위
+	if(list_empty(&t->donation_list))
+	{
+		t->priority = new_priority;
+	}
+	// 나한테 기부한 스레드가 있다면, 기부받은 우선순위와 기존 우선순위 중 더 높은 값을 최종 우선순위 값으로 설정
+	else
+	{
+		// donation_list는 우선순위 순으로 정렬된 상태(내림차순)
+		struct thread* highest_donated_thread = list_entry(list_front(&t->donation_list), struct thread, donation_elem);
+
+		if(highest_donated_thread->priority > new_priority)
+		{
+			t->priority = highest_donated_thread->priority;
+		}
+		else
+		{
+			t->priority = new_priority;
+		}
+	}
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
@@ -337,26 +410,7 @@ thread_set_priority (int new_priority) {
 	enum intr_level old_level = intr_disable();
 
 	// donation이 적용된, 최종 우선순위 계산
-	// 나한테 기부한 스레드가 없다면, 기존 우선순위
-	if(list_empty(&current_thread->donation_list))
-	{
-		current_thread->priority = new_priority;
-	}
-	// 나한테 기부한 스레드가 있다면, 기부받은 우선순위와 기존 우선순위 중 더 높은 값을 최종 우선순위 값으로 설정
-	else
-	{
-		// donation_list는 우선순위 순으로 정렬된 상태(내림차순)
-		struct thread* highest_donated_thread = list_entry(list_front(&current_thread->donation_list), struct thread, donation_elem);
-
-		if(highest_donated_thread->priority > new_priority)
-		{
-			current_thread->priority = highest_donated_thread->priority;
-		}
-		else
-		{
-			current_thread->priority = new_priority;
-		}
-	}
+	calculate_and_set_priority_with_donation(current_thread, new_priority);
 
 	// 현재 스레드의 우선순위가 최고가 아니라면, 즉시 CPU 양보
 	// ready_list는 우선순위 순으로 정렬된 상태(내림차순)
@@ -398,28 +452,41 @@ thread_get_priority (void) {
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) {
-	/* TODO: Your implementation goes here */
+	struct thread* current_thread = thread_current();
+	current_thread->nice = nice; // 1. nice 값 설정
+
+	// 2. priority 재계산
+	update_priority(current_thread);
+
+	// 3. 필요하다면 yield
+	if(!list_empty(&ready_list))
+	{
+		struct thread *highest_priority_thread = list_entry(list_front(&ready_list), struct thread, elem);
+		if(current_thread->priority < highest_priority_thread->priority)
+		{
+			thread_yield();
+		}
+	}
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	struct thread* current_thread = thread_current();
+	return current_thread->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	return FP_TO_INT_ROUND(load_avg * 100);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	struct thread* current_thread = thread_current();
+	return FP_TO_INT_ROUND(current_thread->recent_cpu * 100);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
