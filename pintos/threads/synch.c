@@ -415,6 +415,21 @@ cond_init (struct condition *cond) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+
+/* 우선순위 비교 함수 (semaphore waiters용) */
+static bool
+sema_priority_compare(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED)
+{
+	struct semaphore_elem* sema_a = list_entry(a, struct semaphore_elem, elem);
+	struct semaphore_elem* sema_b = list_entry(b, struct semaphore_elem, elem);
+
+	// 각 세마포어의 waiters 리스트에서 가장 높은 우선순위를 가진 스레드의 우선순위를 비교
+	struct thread* thread_a = list_entry(list_front(&sema_a->semaphore.waiters), struct thread, elem);
+	struct thread* thread_b = list_entry(list_front(&sema_b->semaphore.waiters), struct thread, elem);
+
+	return thread_a->priority > thread_b->priority;
+}
+
 void
 cond_wait (struct condition *cond, struct lock *lock) {
 	struct semaphore_elem waiter;
@@ -446,6 +461,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	if (!list_empty (&cond->waiters))
+		list_sort(&cond->waiters, sema_priority_compare, NULL); // 정렬(우선순위 기준 내림차순)
 		sema_up (&list_entry (list_pop_front (&cond->waiters),
 					struct semaphore_elem, elem)->semaphore);
 }
