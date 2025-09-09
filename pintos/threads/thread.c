@@ -57,8 +57,19 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
-// 17.14 고정소수점 연산 매크로
-#define F (1 << 14) // 17.14 고정 소수점 방식 사용
+/*
+* 17.14 고정소수점 : 32비트 정수를 이용해서 소수를 표현하는 방식
+* 17.14 고정소수점(상위 17비트는 정수 부분, 하위 14비트는 소수 부분) 연산 매크로
+* F = 2^14 : 고정소수점에서 소수점 이하는 14비트
+* 정수를 고정소수점으로 바꾸려면 F를 곱하고, 고정소수점을 정수로 바꾸려면 F로 나누기
+* => 고정소수점 나눗셈에서 정밀도를 유지하기 위한 스케일링 팩터
+
+* 사용 이유 : 부동소수점 연산은 커널에서 금지되어 있으므로, 부동소수점 대신 고정소수점을 사용
+* 고정소수점 사용을 통해, 반올림 오차를 줄일 수 있고 크기는 고정되며 정수로만 연산하기에 연산 속도가 빠름
+*/
+#define F (1 << 14)
+
+/* F를 이용한 변환 매크로 */
 // 정수 → 고정소수점
 #define INT_TO_FP(n) ((n) * F)
 // 고정소수점 → 정수 (내림)
@@ -182,16 +193,15 @@ void update_load_avg(void)
 		ready_threads += 1;
 	}
 	// load_avg = (59/60) * load_avg + (1/60) * ready_threads
-	load_avg = FP_MUL(FP_DIV(INT_TO_FP(59), INT_TO_FP(60)), load_avg)
-			+ FP_MUL(FP_DIV(INT_TO_FP(1), INT_TO_FP(60)), INT_TO_FP(ready_threads));
+	load_avg = FP_MUL(FP_DIV(INT_TO_FP(59), INT_TO_FP(60)), load_avg) + FP_MUL(FP_DIV(INT_TO_FP(1), INT_TO_FP(60)), INT_TO_FP(ready_threads));
 }
 
 void update_recent_cpu(struct thread* t)
 {
 	if (t == idle_thread) return;
 	// recent_cpu = (2*load_avg) / (2*load_avg + 1) * recent_cpu + nice
-	int64_t coef = FP_DIV(FP_MUL(INT_TO_FP(2), load_avg), FP_MUL(INT_TO_FP(2), load_avg) + INT_TO_FP(1));
-	t->recent_cpu = FP_MUL(coef, t->recent_cpu) + INT_TO_FP(t->nice);
+	int64_t load_avg_2 = FP_MUL(INT_TO_FP(2), load_avg);
+	t->recent_cpu = FP_DIV(load_avg_2, load_avg_2 + INT_TO_FP(1)) * t->recent_cpu / F + INT_TO_FP(t->nice);
 }
 
 void update_priority(struct thread* t)
