@@ -260,7 +260,9 @@ thread_tick (void) {
 			struct thread* highest_priority_thread = list_entry(list_front(&ready_list), struct thread, elem);
 			if(highest_priority_thread->priority > t->priority)
 			{
-				thread_yield();
+				// 인터럽트 컨텍스트 내(timer_interrupt() => thread_tick())에서 thread_yield()하면 안됨
+				// intr_yield_on_return()를 통해서 인터럽트가 종료된 후에 양보하도록 설정
+				intr_yield_on_return();
 			}
 		}
 	}
