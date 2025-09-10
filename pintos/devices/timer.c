@@ -104,7 +104,7 @@ timer_sleep (int64_t ticks) {
 
 	ASSERT(intr_get_level() == INTR_ON);
 
-	// 음수나 0이 들어오면 바로 리턴
+	// negative, zero 테스트에 대한 처리(예외 처리)
 	if(ticks <= 0)
 	{
 		return;
@@ -114,8 +114,8 @@ timer_sleep (int64_t ticks) {
 	old_level = intr_disable();
 
 	current_thread = thread_current();
-	current_thread->wakeup_tick = (timer_ticks()) + ticks;
-	list_insert_ordered(&sleep_list, &current_thread->elem, wakeup_tick_compare, NULL);
+	current_thread->wakeup_tick = (timer_ticks()) + ticks; // ticks만큼 후에 깨우기
+	list_insert_ordered(&sleep_list, &current_thread->elem, wakeup_tick_compare, NULL); // sleep_list에 현재 스레드 추가(오름차순 정렬)
 	thread_block(); // 현재 스레드를 block 상태로 바꾸기
 
 	intr_set_level(old_level); // 인터럽트 다시 켜주기
@@ -151,7 +151,10 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
 
-	// sleep_list에 있는 스레드들 중에서 깨워야 할 스레드가 있는지 확인
+	/*
+	* sleep_list에 있는 스레드들 중에서 깨워야 할 스레드가 있는지 확인
+	* 타이머 인터럽트 : 1초에 100번 발생 -> 매 인터럽트마다 sleep_list에서 깨울 스레드가 있는지 확인
+	*/
 	struct list_elem* elem = list_begin(&sleep_list);
 	while(elem != list_end(&sleep_list))
 	{
