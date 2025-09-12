@@ -85,6 +85,7 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+// 👇👇👇 TCB(Thread Control Block)
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -115,9 +116,12 @@ struct thread {
 #endif
 
 	/* Owned by thread.c. */
+	// 👇👇👇 컨텍스트 스위칭을 위한 레지스터 저장소 : 스레드가 중단될 때 모든 CPU 레지스터 값을 저장
 	struct intr_frame tf;               /* Information for switching */
+	// 👆👆👆 컨텍스트 스위칭을 위한 레지스터 저장소 : 스레드가 중단될 때 모든 CPU 레지스터 값을 저장
 	unsigned magic;                     /* Detects stack overflow. */
 };
+// 👆👆👆 TCB(Thread Control Block)
 
 extern struct list sleep_list; // sleep 상태인 스레드들을 담는 리스트
 

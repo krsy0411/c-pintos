@@ -312,25 +312,37 @@ thread_create (const char *name, int priority,
 
 	ASSERT (function != NULL);
 
-	/* Allocate thread. */
+	// ⭐️⭐️⭐️ 초기 실행 컨텍스트 설정 ⭐️⭐️⭐️
+	/* 1. 스레드 메모리 할당 */
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
 
-	/* Initialize thread. */
+	/* 스레드 초기화 */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
 	/* Call the kernel_thread if it scheduled.
-	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
-	t->tf.rip = (uintptr_t) kernel_thread;
-	t->tf.R.rdi = (uint64_t) function;
-	t->tf.R.rsi = (uint64_t) aux;
-	t->tf.ds = SEL_KDSEG;
-	t->tf.es = SEL_KDSEG;
-	t->tf.ss = SEL_KDSEG;
-	t->tf.cs = SEL_KCSEG;
-	t->tf.eflags = FLAG_IF;
+	 * Note) rdi is 1st argument, and rsi is 2nd argument. 
+	 * 3. 논리주소 셋업 : x86-64에서 함수의 첫 번째, 두 번째 인자는 각각 rdi, rsi 레지스터를 통해 전달(호출 규약)
+	*/
+
+	// 👇👇👇 스레드가 처음 실행될 때 호출할 함수 설정(명령어 포인터 설정)
+	t->tf.rip = (uintptr_t) kernel_thread; // rip : 다음에 실행할 명령어의 주소(=함수 시작 주소)
+	// 👆👆👆 시작 함수는 스레드마다 동일(rip값을 동일하게 설정)하지만, 인자에 따라 각자의 함수 실행 경로를 따라가게됨
+
+	// 👇👇👇 함수 인자 설정
+	t->tf.R.rdi = (uint64_t) function; // rdi : 첫 번째 함수 인자
+	t->tf.R.rsi = (uint64_t) aux; // rsi : 두 번째 함수 인자
+	// 👆👆👆 시작 함수는 동일해도 함수 인자가 다르기 때문에, 실행 흐름은 스레드마다 다름
+
+	// 👇👇👇 세그먼트 레지스터 설정
+	t->tf.ds = SEL_KDSEG; // 데이터 세그먼트(데이터 영역의 논리주소 공간)
+	t->tf.es = SEL_KDSEG; // 확장 세그먼트(확장 영역의 논리주소 공간)
+	t->tf.ss = SEL_KDSEG; // 스택 세그먼트(스택 영역의 논리주소 공간)
+	t->tf.cs = SEL_KCSEG; // 코드 세그먼트(코드 영역의 논리주소 공간)
+	t->tf.eflags = FLAG_IF; // 플래그 레지스터
+	// 👆👆👆 
 
 	/* all_list에 스레드 추가 */
 	list_push_back(&all_list, &t->all_elem);
@@ -339,6 +351,7 @@ thread_create (const char *name, int priority,
 	thread_unblock (t);
 
 	/* 새로 생성된 스레드가 현재 스레드보다 우선순위가 높으면 양보 */
+	// 5. 우선순위 기반 선점
 	if (t->priority > thread_current()->priority)
 	{
 		thread_yield();
@@ -624,22 +637,27 @@ kernel_thread (thread_func *function, void *aux) {
    NAME. */
 static void
 init_thread (struct thread *t, const char *name, int priority) {
+	// 👇👇👇 입력(인자) 검증
 	ASSERT (t != NULL);
 	ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
 	ASSERT (name != NULL);
+	// 👆👆👆
 
-	memset (t, 0, sizeof *t);
-	t->status = THREAD_BLOCKED;
-	strlcpy (t->name, name, sizeof t->name);
-	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
+	// 👇👇👇 스레드 구조체(= 스레드 제어 블록[TCB]) 초기화 수행
+	memset (t, 0, sizeof *t); // 메모리 초기화(스레드 구조체 전체를 0으로 초기화) : 쓰레기값이 안 남도록 => 안전한 초기상태 보장
+	t->status = THREAD_BLOCKED; // 기본 상태 설정
+	strlcpy (t->name, name, sizeof t->name); // 스레드 이름 복사
+	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *); // 스택 포인터 설정
+	// 👆👆👆 메모리 레이아웃 설정
+
+	// 👇👇👇 스레드 우선순위 및 관련 필드 초기화
 	t->priority = priority;
 	t->base_priority = priority;
 	t->waiting_lock = NULL;
 	list_init(&t->donation_list);
-	
-	/* MLFQS 관련 필드 초기화 */
 	t->nice = 0;
 	t->recent_cpu = 0;
+	// 👆👆👆
 	
 	t->magic = THREAD_MAGIC;
 }
