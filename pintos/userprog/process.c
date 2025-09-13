@@ -23,7 +23,7 @@
 #endif
 
 static void process_cleanup(void);
-static bool load(const char* file_name, struct intr_frame* if_);
+static bool load(char* argv[], struct intr_frame* if_);
 static void initd(void* f_name);
 static void __do_fork(void*);
 
@@ -203,7 +203,7 @@ int process_exec(void* cmd_args)
     process_cleanup();
 
     /* And then load the binary */
-    success = load(file_name, &_if);
+    success = load(argv, &_if);
 
     /* If load failed, quit. */
     palloc_free_page(file_name);
@@ -353,7 +353,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
  * Stores the executable's entry point into *RIP
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
-static bool load(const char* file_name, struct intr_frame* if_)
+static bool load(char* argv[], struct intr_frame* if_)
 {
     struct thread* t = thread_current();
     struct ELF ehdr;
@@ -361,6 +361,7 @@ static bool load(const char* file_name, struct intr_frame* if_)
     off_t file_ofs;
     bool success = false;
     int i;
+    char* file_name = argv[0];
 
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
