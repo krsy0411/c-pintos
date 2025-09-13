@@ -374,6 +374,18 @@ thread_block (void) {
 	schedule ();
 }
 
+void thread_preemption()
+{
+	if(intr_context())
+	{
+		intr_yield_on_return();
+	}
+	else
+	{
+		thread_yield();
+	}
+}
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -392,6 +404,13 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered(&ready_list, &t->elem, priority_compare, NULL);
 	t->status = THREAD_READY;
+
+	// 새로 unblocked된 스레드의 우선순위가 현재 스레드보다 높으면 선점
+	if(t != idle_thread && t->priority > thread_current()->priority)
+	{
+		thread_preemption();
+	}
+
 	intr_set_level (old_level);
 }
 
