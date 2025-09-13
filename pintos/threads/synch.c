@@ -122,8 +122,7 @@ sema_try_down (struct semaphore *sema) {
    and wakes up one thread of those waiting for SEMA, if any.
 
    This function may be called from an interrupt handler. */
-void
-sema_up (struct semaphore *sema) {
+void sema_up (struct semaphore *sema) {
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
@@ -146,7 +145,11 @@ sema_up (struct semaphore *sema) {
 		// 깨운 스레드의 우선순위가 현재 스레드보다 높으면 양보(선점)
 		if(unblocked_thread->priority > thread_current()->priority)
 		{
-			thread_yield();
+			if (intr_context()) {
+				intr_yield_on_return();
+			} else {
+				thread_yield();
+			}
 		}
 	}
 
