@@ -142,12 +142,6 @@ sema_up (struct semaphore *sema) {
 
 		struct thread* unblocked_thread = list_entry(list_pop_front (&sema->waiters), struct thread, elem);
 		thread_unblock(unblocked_thread);
-		
-		// 깨운 스레드의 우선순위가 현재 스레드보다 높으면 양보(선점)
-		if(unblocked_thread->priority > thread_current()->priority)
-		{
-			thread_yield();
-		}
 	}
 
 	intr_set_level (old_level);
