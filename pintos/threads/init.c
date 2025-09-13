@@ -240,6 +240,7 @@ run_task (char **argv) {
 	const char *task = argv[1];
 
 	printf ("Executing '%s':\n", task);
+	// 👇👇👇 Project2(유저 프로그램) : 프로세스를 시작하는 부분
 #ifdef USERPROG
 	if (thread_tests){
 		run_test (task);

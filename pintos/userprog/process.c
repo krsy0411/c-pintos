@@ -165,18 +165,22 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	// ⭐️⭐️⭐️ 프로세스 교체 함수 ⭐️⭐️⭐️
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
+	// 👇👇👇 사용자 모드 실행을 위한 인터럽트 프레임 설정
 	struct intr_frame _if;
-	_if.ds = _if.es = _if.ss = SEL_UDSEG;
-	_if.cs = SEL_UCSEG;
+	_if.ds = _if.es = _if.ss = SEL_UDSEG; // 사용자 데이터 세그먼트
+	_if.cs = SEL_UCSEG; // 사용자 코드 세그먼트 : 사용자 모드로 설정
 	_if.eflags = FLAG_IF | FLAG_MBS;
+	// 👆👆👆
 
-	/* We first kill the current context */
+	// 👇👇👇 기존 프로세스 자원(메모리, 페이지 테이블) 정리
 	process_cleanup ();
 
-	/* And then load the binary */
+	// 👇👇👇 ELF 파일 파싱 & 메모리 로드 : 파일 이름 복사 및 프로그램 이름 추출(새 프로그램 로드)
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
@@ -184,9 +188,10 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 
-	/* Start switched process. */
-	do_iret (&_if);
-	NOT_REACHED ();
+	// 👇👇👇 사용자 모드로 전환(새 프로그램으로 영구 전환)
+	do_iret (&_if); // 점프(즉, 돌아올 수 없음)
+	// 👆👆👆
+	NOT_REACHED (); // 절대 여기에 도달하지 않음
 }
 
 
@@ -204,6 +209,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+
+	// TODO: Implement proper process_wait functionality
+	// For now, return immediately to avoid infinite loop
 	return -1;
 }
 
