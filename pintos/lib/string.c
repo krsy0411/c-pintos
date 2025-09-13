@@ -215,8 +215,7 @@ outputs:
 'to'
 'tokenize.'
 */
-char *
-strtok_r (char *s, const char *delimiters, char **save_ptr) {
+char *strtok_r (char *s, const char *delimiters, char **save_ptr) {
 	char *token;
 
 	ASSERT (delimiters != NULL);
