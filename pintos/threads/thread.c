@@ -677,6 +677,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->nice = 0;
 	t->recent_cpu = 0;
 	// 👆👆👆
+
+	// process_wait, exit 용 초기화
+	#ifdef USERPROG
+  		t->parent = NULL;
+  		list_init(&t->children);   // ★ children 리스트 초기화
+	#endif
 	
 	t->magic = THREAD_MAGIC;
 }

@@ -93,6 +93,7 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 	int64_t wakeup_tick;			/* 깨워야 할 tick */
+	enum thread_status exit_status;
 
 	int base_priority; // 기존 우선순위
 	struct lock* waiting_lock; // 대기중인 lock
@@ -109,6 +110,8 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	struct thread *parent; // process wait, exit용
+	struct list children;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
