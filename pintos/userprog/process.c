@@ -154,7 +154,8 @@ void setup_arguments(struct intr_frame *if_, int argc, char **argv) {
   char *argv_addresses[argc];
   for (int i = argc - 1; i >= 0; i--) {
     size_t arg_len = strlen(argv[i]) + 1;  // 널 문자('\0') 포함
-    stack_ptr -= arg_len;                  // 문자열 길이만큼 스택 포인터 감소
+
+    stack_ptr -= arg_len;  // 문자열 길이만큼 스택 포인터 감소
     memcpy(stack_ptr, argv[i], arg_len);
     argv_addresses[i] = stack_ptr;  // 주소 기록
   }
@@ -169,8 +170,8 @@ void setup_arguments(struct intr_frame *if_, int argc, char **argv) {
   stack_ptr -= sizeof(char *);  // 8바이트 감소
   *(char **)stack_ptr = NULL;   // NULL 포인터 저장
 
-  // 5) argv 포인터들을 정순으로 저장
-  for (int i = 0; i < argc; i++) {
+  // 5) argv 포인터들을 역순으로 저장
+  for (int i = (argc - 1); i >= 0; i--) {
     stack_ptr -= sizeof(char *);  // 포인터 크기(8바이트)만큼 감소
     *(char **)stack_ptr =
         argv_addresses[i];  // 앞서 저장한 주소를 포인터로 저장
@@ -191,6 +192,10 @@ void setup_arguments(struct intr_frame *if_, int argc, char **argv) {
 
   // 9) 최종 rsp(스택 포인터) 업데이트
   if_->rsp = (uint64_t)stack_ptr;
+
+  // 10) 레지스터 설정 : 인자 전달
+  if_->R.rdi = argc;                // 첫 번째 인자 : argc
+  if_->R.rsi = (uint64_t)argv_ptr;  // 두 번째 인자 : argv
 }
 
 /* Switch the current execution context to the f_name.
@@ -215,13 +220,21 @@ int process_exec(void *f_name) {
   process_cleanup();
 
   // 🏁🏁🏁 Project 2 : argument passing 🏁🏁🏁
+  // 2.1) 파일 이름 복사(원본 보호)
+  char *file_name_cpy = palloc_get_page(0);
+  if (file_name_cpy == NULL) {
+    palloc_free_page(file_name);
+    return -1;
+  }
+  strlcpy(file_name_cpy, file_name, PGSIZE);
+
   // 2.1) 변수 설정
   char *token, *save_ptr;
   char *argv[128];  // 인자 길이 제한 : 128 바이트
   int argc = 0;
 
   // 2.2) 토큰화 & argv 배열에 저장
-  token = strtok_r(file_name, " ", &save_ptr);  // 2번째 인자는 구분자
+  token = strtok_r(file_name_cpy, " ", &save_ptr);  // 2번째 인자는 구분자
   char *actual_file_name = token;
 
   while (token != NULL) {
@@ -237,6 +250,7 @@ int process_exec(void *f_name) {
   /* 로드에 성공하지 못했으면, 메모리 할당 해제하고 함수 종료 */
   if (!success) {
     palloc_free_page(file_name);
+    palloc_free_page(file_name_cpy);
     return -1;
   }
 
@@ -245,6 +259,7 @@ int process_exec(void *f_name) {
 
   /* 메모리 해제 : file_name 메모리 해제 */
   palloc_free_page(file_name);
+  palloc_free_page(file_name_cpy);
 
   // 👇👇👇 사용자 모드로 전환(새 프로그램으로 영구 전환)
   do_iret(&_if);  // 점프(즉, 돌아올 수 없음)
@@ -268,7 +283,8 @@ int process_wait(tid_t child_tid UNUSED) {
 
   // TODO: Implement proper process_wait functionality
   // For now, use thread_yield() in a loop to avoid blocking the scheduler
-  while (1) {
+  for (int i = 0; i < 10000; i++) {
+    thread_yield();
   }
   return -1;
 }
