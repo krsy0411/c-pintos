@@ -1,6 +1,8 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+
+#include "init.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -36,11 +38,27 @@ void syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
+void halt(void);
 /* The main system call interface */
 void syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
-	// int syscall_num = *(int *)f->es;
+  uint64_t syscall_num = f->R.rax;  // 주석 해제!
 
-	printf ("system call!\n");
-	thread_exit ();
+  switch (syscall_num) {
+    case SYS_EXIT:
+      // TODO: exit 구현
+      break;
+    case SYS_WRITE:
+      // TODO: write 구현
+      break;
+    case SYS_HALT:
+      halt();
+      break;
+    default:
+      printf("Unknown system call: %llu\n", syscall_num);
+      thread_exit();
+  }
+}
+
+void halt (void) {
+  power_off(); // 시스템 종료
 }
