@@ -39,13 +39,14 @@ void syscall_init (void) {
 }
 
 void halt(void);
+void exit(int);
 /* The main system call interface */
 void syscall_handler (struct intr_frame *f UNUSED) {
   uint64_t syscall_num = f->R.rax;  // 주석 해제!
 
   switch (syscall_num) {
     case SYS_EXIT:
-      // TODO: exit 구현
+      exit((int)f->R.rdi);
       break;
     case SYS_WRITE:
       // TODO: write 구현
@@ -59,6 +60,15 @@ void syscall_handler (struct intr_frame *f UNUSED) {
   }
 }
 
-void halt (void) {
+void halt () {
   power_off(); // 시스템 종료
+}
+
+void exit (const int status) {
+  struct thread *curr = thread_current();
+  curr->exit_status = status;
+
+  // TODO: 나중에 파일 descriptor 정리 등 추가
+
+  thread_exit();
 }

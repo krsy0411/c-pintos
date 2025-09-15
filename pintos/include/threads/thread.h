@@ -103,6 +103,8 @@ struct thread {
   int64_t recent_cpu; // recent_cpu 값
   struct list_elem all_elem; // all_list에 들어갈 때 쓰이는 원소
 
+  int exit_status; // 종료 상태를 저장할 변수
+
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
