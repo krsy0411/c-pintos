@@ -39,8 +39,7 @@ void syscall_init (void) {
 /* The main system call interface */
 void syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	int syscall_num = *(int *)f->es;
-
+	// int syscall_num = *(int *)f->es;
 
 	printf ("system call!\n");
 	thread_exit ();
