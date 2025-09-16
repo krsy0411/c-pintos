@@ -46,9 +46,11 @@ tid_t process_create_initd(const char *file_name) {
   fn_copy = palloc_get_page(0);
   if (fn_copy == NULL) return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
+  char *temp_save;
+  char *single_name = strtok_r(file_name, " ", &temp_save);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
+  tid = thread_create(single_name, PRI_DEFAULT, initd, fn_copy);
   if (tid == TID_ERROR) palloc_free_page(fn_copy);
   return tid;
 }
@@ -146,6 +148,7 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
+// (프로세스 -> 스레드) 다시 다시 자식 프로세스 자식 스레드
 int process_exec(void *f_name) {
   char *file_name = (char *)f_name;
   bool success;
@@ -207,13 +210,30 @@ int process_wait(tid_t child_tid UNUSED) {
   /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
    * XXX:       to add infinite loop here before
    * XXX:       implementing the process_wait. */
-  while (1) {
-    /* code */
+  struct thread *child = NULL;
+  struct list_elem *e;
+
+  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, all_elem);
+    if (t->tid == child_tid) {
+      child = t;
+      break;
+    }
+  }
+
+  // 2. child가 없으면 -1 반환
+  if (child == NULL) {
+    return -1;
+  }
+
+  // 3. child가 죽을 때까지 기다리기
+  while (child->status != THREAD_DYING) {
+    thread_yield();  // CPU 양보하면서 기다리기
   }
 
   // TODO: Implement proper process_wait functionality
   // For now, return immediately to avoid infinite loop
-  return -1;
+  return 0;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
