@@ -29,7 +29,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 struct list sleep_list; // timer.c 파일에서 사용 : sleep 상태인 스레드들을 담는 리스트
-static struct list all_list; // 모든 스레드를 담는 리스트(priority 재계산 용도)
+struct list all_list; // 모든 스레드를 담는 리스트(priority 재계산 용도)
 
 /* Idle thread. */
 static struct thread *idle_thread;
