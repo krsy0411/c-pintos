@@ -49,9 +49,34 @@ tid_t process_create_initd(const char *file_name) {
   if (fn_copy == NULL) return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
-  if (tid == TID_ERROR) palloc_free_page(fn_copy);
+  /* ⭐️⭐️⭐️
+   * file_name : 실행할 프로그램의 전체 명령행 문자열
+   * thread_name : 스레드 이름(EX : "args-single")을 저장하기 위한 버퍼
+   * ⭐️⭐️⭐️
+   */
+  char *thread_name = palloc_get_page(0);
+  if (thread_name == NULL) {
+    palloc_free_page(fn_copy);
+    /* 스레드 생성 실패시, TID_ERROR 반환 */
+    return TID_ERROR;
+  }
+  strlcpy(thread_name, file_name, PGSIZE);
+
+  char *save_ptr;
+  char *actual_name =
+      strtok_r(thread_name, " ", &save_ptr); /* 이제 진짜 스레드 이름 추출 */
+
+  /* FILE_NAME을 실행할 새 스레드 생성 */
+  tid = thread_create(actual_name, PRI_DEFAULT, initd, fn_copy);
+  if (tid == TID_ERROR) {
+    /* 스레드 생성 실패 */
+    palloc_free_page(fn_copy);
+    palloc_free_page(thread_name);
+  } else {
+    /* 스레드 생성 성공 */
+    palloc_free_page(thread_name);
+  }
+
   return tid;
 }
 
@@ -296,7 +321,9 @@ void process_exit(void) {
    * TODO: Implement process termination message (see
    * TODO: project2/process_termination.html).
    * TODO: We recommend you to implement process resource cleanup here. */
-
+#ifdef USERPROG
+  printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+#endif
   process_cleanup();
 }
 
