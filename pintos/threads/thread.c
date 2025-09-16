@@ -305,6 +305,12 @@ void thread_print_stats(void) {
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
+/*
+  name : 스레드 이름(EX : "args-none", "args-single" 등)
+  priority : 스레드 우선순위(PRI_MIN ~ PRI_MAX)
+  function : 스레드가 처음 실행될 때 호출할 함수(= 스레드 진입점)
+  aux : function에 전달할 인자(EX : NULL, "argone", "argtwo" 등)
+*/
 tid_t thread_create(const char *name, int priority, thread_func *function,
                     void *aux) {
   struct thread *t;

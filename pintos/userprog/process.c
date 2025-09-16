@@ -49,32 +49,23 @@ tid_t process_create_initd(const char *file_name) {
   if (fn_copy == NULL) return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
 
-  /* ⭐️⭐️⭐️
-   * file_name : 실행할 프로그램의 전체 명령행 문자열
-   * thread_name : 스레드 이름(EX : "args-single")을 저장하기 위한 버퍼
-   * ⭐️⭐️⭐️
+  /* 파싱 없이 전체 명령행을 그대로 스레드 이름으로 사용
+   * (실제 파싱은 process_exec에서 처리)
    */
-  char *thread_name = palloc_get_page(0);
-  if (thread_name == NULL) {
-    palloc_free_page(fn_copy);
-    /* 스레드 생성 실패시, TID_ERROR 반환 */
-    return TID_ERROR;
-  }
-  strlcpy(thread_name, file_name, PGSIZE);
+  char thread_name[16];  // 스레드 이름은 최대 16자
+  strlcpy(thread_name, file_name, sizeof(thread_name));
 
-  char *save_ptr;
-  char *actual_name =
-      strtok_r(thread_name, " ", &save_ptr); /* 이제 진짜 스레드 이름 추출 */
+  /* 스레드 이름이 너무 길면 첫 번째 단어만 사용 */
+  char *space_pos = strchr(thread_name, ' ');
+  if (space_pos != NULL) {
+    *space_pos = '\0';  // 첫 번째 공백에서 문자열 종료
+  }
 
   /* FILE_NAME을 실행할 새 스레드 생성 */
-  tid = thread_create(actual_name, PRI_DEFAULT, initd, fn_copy);
+  tid = thread_create(thread_name, PRI_DEFAULT, initd, fn_copy);
   if (tid == TID_ERROR) {
     /* 스레드 생성 실패 */
     palloc_free_page(fn_copy);
-    palloc_free_page(thread_name);
-  } else {
-    /* 스레드 생성 성공 */
-    palloc_free_page(thread_name);
   }
 
   return tid;
