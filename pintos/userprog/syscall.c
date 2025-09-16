@@ -11,6 +11,7 @@
 #include "threads/loader.h"
 #include "threads/thread.h"
 #include "userprog/gdt.h"
+#include "userprog/process.h"
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 void sys_write(int fd, const void *buffer, size_t size);
@@ -49,6 +50,8 @@ void syscall_handler(struct intr_frame *f) {
     sys_exit(f->R.rdi);
   } else if (f->R.rax == SYS_WRITE) {
     sys_write(f->R.rdi, (const void *)f->R.rsi, f->R.rdx);
+  } else if (f->R.rax == SYS_WAIT) {
+    f->R.rax = process_wait(f->R.rdi);
   }
 }
 
