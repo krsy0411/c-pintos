@@ -1,6 +1,8 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+
+#include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -8,8 +10,8 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 
-void syscall_entry (void);
-void syscall_handler (struct intr_frame *);
+void syscall_entry(void);
+void syscall_handler(struct intr_frame*);
 
 /* System call.
  *
@@ -24,23 +26,59 @@ void syscall_handler (struct intr_frame *);
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
-void syscall_init (void) {
-	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
-			((uint64_t)SEL_KCSEG) << 32);
-	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
+void syscall_init(void) {
+  write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
+                      ((uint64_t)SEL_KCSEG) << 32);
+  write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
 
-	/* The interrupt service rountine should not serve any interrupts
-	 * until the syscall_entry swaps the userland stack to the kernel
-	 * mode stack. Therefore, we masked the FLAG_FL. */
-	write_msr(MSR_SYSCALL_MASK,
-			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+  /* The interrupt service rountine should not serve any interrupts
+   * until the syscall_entry swaps the userland stack to the kernel
+   * mode stack. Therefore, we masked the FLAG_FL. */
+  write_msr(MSR_SYSCALL_MASK,
+            FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
+void halt(void);
+void exit(int);
 /* The main system call interface */
-void syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
-	// int syscall_num = *(int *)f->es;
+void syscall_handler(struct intr_frame* f UNUSED) {
+  uint64_t syscall_num = f->R.rax; // 주석 해제!
 
-	printf ("system call!\n");
-	thread_exit ();
+  switch (syscall_num) {
+    case SYS_EXIT:
+      exit((int)f->R.rdi);
+      break;
+    case SYS_WRITE: {
+      int fd = (int)f->R.rdi; // 첫 번째 인자
+      const void* buffer = (void*)f->R.rsi; // 두 번째 인자
+      unsigned size = (unsigned)f->R.rdx; // 세 번째 인자
+
+      // 일단 printf만
+      if (fd == 1) {
+        putbuf(buffer, size);
+        f->R.rax = size;
+      }
+
+      break;
+    }
+    case SYS_HALT:
+      halt();
+      break;
+    default:
+      printf("Unknown system call: %llu\n", syscall_num);
+      thread_exit();
+  }
+}
+
+void halt() {
+  power_off(); // 시스템 종료
+}
+
+void exit(const int status) {
+  struct thread* curr = thread_current();
+  curr->exit_status = status;
+
+  // TODO: 나중에 파일 descriptor 정리 등 추가
+
+  thread_exit();
 }

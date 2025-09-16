@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/thread.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -179,8 +180,6 @@ int process_exec(void* cmd_args) {
   char* file_name = argv[0];
   bool success;
 
-  printf("process_exec: %s\n", file_name);
-
   /* We cannot use the intr_frame in the thread structure.
    * This is because when current thread rescheduled,
    * it stores the execution information to the member. */
@@ -217,12 +216,33 @@ int process_exec(void* cmd_args) {
  * does nothing. */
 int
 process_wait(tid_t child_tid UNUSED) {
+   struct thread *child = NULL;
+
+    // 1. child_tid로 thread 찾기
+    struct list_elem *e;
+    for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, all_elem);
+        if (t->tid == child_tid) {
+            child = t;
+            break;
+        }
+    }
+
+    // 2. child가 없으면 -1 반환
+    if (child == NULL) {
+        return -1;
+    }
+
+    // 3. child가 죽을 때까지 기다리기
+    while (child->status != THREAD_DYING) {
+        thread_yield();  // CPU 양보하면서 기다리기
+    }
+
+    // 4. exit_status 반환
+    return child->exit_status;
   /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
    * XXX:       to add infinite loop here before
    * XXX:       implementing the process_wait. */
-  while (1) {
-    
-  }
   return -1;
 }
 
@@ -234,6 +254,19 @@ process_exit(void) {
    * TODO: Implement process termination message (see
    * TODO: project2/process_termination.html).
    * TODO: We recommend you to implement process resource cleanup here. */
+  char prog_name[16];
+  char *space_pos = strchr(curr->name, ' ');
+
+  if (space_pos != NULL) {
+    // 공백이 있으면 첫 번째 단어만 복사
+    int len = space_pos - curr->name;
+    strlcpy(prog_name, curr->name, len + 1);
+  } else {
+    // 공백이 없으면 전체 복사
+    strlcpy(prog_name, curr->name, sizeof(prog_name));
+  }
+
+  printf("%s: exit(%d)\n", prog_name, curr->exit_status);
 
   process_cleanup();
 }
@@ -461,6 +494,10 @@ static bool load(char* argv[], struct intr_frame* if_) {
     *(char**)stack_ptr = arg_address[i];
   }
   void *argv_base = (void *)stack_ptr;  // 포인터 배열의 시작 주소
+
+  // 가짜 주소
+  stack_ptr -= sizeof(char*); // 8바이트 감소.
+  *(char**)stack_ptr = NULL; // 8바이트 감소한 주소의 위치에 NULL 포인터 저장
 
   // Align stack pointer to 16 bytes for the System V ABI.
   int padding = (uintptr_t)stack_ptr % 16;
