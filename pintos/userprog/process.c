@@ -462,6 +462,10 @@ static bool load(char* argv[], struct intr_frame* if_) {
   }
   void *argv_base = (void *)stack_ptr;  // 포인터 배열의 시작 주소
 
+  // 가짜 주소
+  stack_ptr -= sizeof(char*); // 8바이트 감소.
+  *(char**)stack_ptr = NULL; // 8바이트 감소한 주소의 위치에 NULL 포인터 저장
+
   // Align stack pointer to 16 bytes for the System V ABI.
   int padding = (uintptr_t)stack_ptr % 16;
   if (padding != 0) {
