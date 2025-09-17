@@ -31,6 +31,3 @@ core
 
 # VSCode
 .vscode/
-.idea
-CMakeList.txt
-.clang-format
