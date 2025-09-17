@@ -99,7 +99,7 @@ struct thread {
   struct list_elem donation_elem;  // 내가 다른 스레드의 donation_list에 들어갈
                                    // 때 쓰이는 원소
   struct list donation_list;       // 나에게 donation해준 스레드들의 리스트
-  int exit_status;
+
   int nice;                   // nice 값
   int64_t recent_cpu;         // recent_cpu 값
   struct list_elem all_elem;  // all_list에 들어갈 때 쓰이는 원소
@@ -109,7 +109,10 @@ struct thread {
 
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
-  uint64_t *pml4; /* Page map level 4 */
+  uint64_t *pml4;     /* Page map level 4 */
+  int exit_status;    /* Process exit status */
+  struct file **fdt;  // 파일 디스크립터 테이블
+
 #endif
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */
