@@ -202,26 +202,6 @@ int read(int fd, void* buffer, unsigned size) {
   return bytes_read;
 }
 
-int open(const char* file_name) {
-  // 파일명 유효성 검사
-  if (file_name == NULL) return -1;
-  if (!is_user_vaddr(file_name)) return -1;
-
-  // 파일시스템을 통해 파일 열기
-  struct file* file = filesys_open(file_name);
-  if (file == NULL) return -1;
-
-  // 간단한 fd 할당 (2부터 시작, stdin=0, stdout=1)
-  // TODO: 나중에 fdt 관리로 개선
-  static int next_fd = 2;
-  int fd = next_fd++;
-
-  // 현재는 fdt가 없으므로 파일을 바로 닫음 (임시)
-  // TODO: fdt 구현 후 파일 저장
-  file_close(file);
-
-  return fd;  // 임시로 fd만 반환
-}
 int open(const char* file) {
   struct thread* curr = thread_current();
 
