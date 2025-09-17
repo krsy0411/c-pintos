@@ -4,6 +4,7 @@
 #include <syscall-nr.h>
 
 #include "filesys/directory.h"
+#include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
@@ -15,6 +16,8 @@
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 int write(int fd, const void *buffer, unsigned size);
+bool create(const char *file, unsigned initial_size);
+bool remove(const char *file);
 
 /* System call.
  *
@@ -69,6 +72,10 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       unsigned position = (unsigned)f->R.rsi;
       seek(fd, position);
       break;
+    /* 파일 생성 */
+    case SYS_CREATE:
+    /* 파일 삭제 */
+    case SYS_REMOVE:
     case SYS_EXEC:
       // todo: implement
     case SYS_TELL:
@@ -82,6 +89,55 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       thread_exit();
   }
 }
+
+/* 파일 생성 함수 */
+bool create(const char *file, unsigned initial_size) {
+  /* 파일이 없으면 프로세스 종료 */
+  if (file == NULL) {
+    process_exit(-1);
+    return false;
+  }
+
+  char fname[NAME_MAX + 1];
+  size_t fname_len = 0;
+
+  for (;;) {
+    const char *u = file + fname_len;
+
+    /* 유저 영역 검사 */
+    if ((void *)u >= LOADER_PHYS_BASE) {
+      process_exit(-1);
+      return false;
+    }
+
+    /* 안전하게 읽기 */
+    uint8_t *k = pml4_get_page(thread_current()->pml4, u);
+    if (k == NULL) {
+      sys_exit(-1);
+      return false;
+    }
+
+    uint8_t b = *k;
+    if (b == '\0') break;
+
+    if (fname_len >= NAME_MAX) {
+      return false;
+    }
+
+    fname[fname_len++] = (char)b;
+  }
+
+  fname[fname_len] = '\0';
+
+  if (fname_len == 0) {
+    return false;
+  }
+
+  bool ok = filesys_create(fname, initial_size);
+
+  return ok;
+}
+bool remove(const char *file) {}
 
 // process_get_file() 함수 구현하면 아래 함수들에서 사용 가능
 void seek(int fd, unsigned position) {
