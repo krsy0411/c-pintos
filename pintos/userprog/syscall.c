@@ -163,7 +163,6 @@ int open(const char *file) {
     // exit(-1);
     return -1;
   }
-
   // 2. 사용자 영역 확인
   if (!is_user_vaddr(file)) {
     // exit(-1);
@@ -196,6 +195,7 @@ int open(const char *file) {
     }
     i++;
   }
+
   // 파일 열기
   struct file *f = filesys_open(kernel_file);
   if (!f) {
@@ -205,7 +205,7 @@ int open(const char *file) {
   // 파일 디스크립터 할당
   int fd = 2;
   // fdt의 끝까지 탐색하는 while
-  while (fd < 128) {
+  while (fd < FDT_SIZE) {
     if (curr->fdt[fd] == NULL) {
       curr->fdt[fd] = f;
       return fd;
