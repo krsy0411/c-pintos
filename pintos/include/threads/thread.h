@@ -94,11 +94,11 @@ struct thread {
   int priority;              /* Priority. */
   int64_t wakeup_tick;       /* 깨워야 할 tick */
 
-  int base_priority;          // 기존 우선순위
-  struct lock *waiting_lock;  // 대기중인 lock
+  int base_priority;               // 기존 우선순위
+  struct lock *waiting_lock;       // 대기중인 lock
   struct list_elem donation_elem;  // 내가 다른 스레드의 donation_list에 들어갈
                                    // 때 쓰이는 원소
-  struct list donation_list;  // 나에게 donation해준 스레드들의 리스트
+  struct list donation_list;       // 나에게 donation해준 스레드들의 리스트
 
   int nice;                   // nice 값
   int64_t recent_cpu;         // recent_cpu 값
@@ -109,8 +109,10 @@ struct thread {
 
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
-  uint64_t *pml4;  /* Page map level 4 */
-  int exit_status; /* Process exit status */
+  uint64_t *pml4;     /* Page map level 4 */
+  int exit_status;    /* Process exit status */
+  struct file **fdt;  // 파일 디스크립터 테이블
+
 #endif
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */
