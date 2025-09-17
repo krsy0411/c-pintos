@@ -115,29 +115,26 @@ int open(const char *file) {
   // struct thread *curr = thread_current();
   //
   // // 파일 유효성 검사
-  // if (!file) {
-  //   // -1 반환 이지만 테스트 케이스에서 exit(-1)을 요구할 수 있음.
-  //   return -1;
+  // if (!file || !is_user_vaddr(file)) {
+  //   exit(-1); // 테스트 케이스에서 -1반환이 아닌 exit(-1)을 요구
   // }
   // // 파일 열기
   // struct file *f = filesys_open(file);
   // if (!f) {
-  //   return -1;
+  //   return -1; // 파일 열기 실패
   // }
   //
   // // 파일 디스크립터 할당
   // int fd = 2;
   // // fdt의 끝까지 탐색하는 while
-  // while (1) {
+  // while (fd < 128) {
   //   if (curr->fdt[fd] == NULL) {
   //     curr->fdt[fd] = f;
   //     return fd;
   //   }
   //   fd++;
-  //   if (fd == curr->fdt->next) {
-  //     break;
-  //   }
   // }
-
+  //
+  // file_close(f);
   return -1;
 }
