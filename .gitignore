@@ -33,7 +33,6 @@ core
 .vscode/
 
 # 98jh-shin
-.devcontainer
 .idea
 .clang-format
 CMakeLists.txt
