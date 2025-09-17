@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
@@ -15,6 +16,9 @@
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 int write(int fd, const void *buffer, unsigned size);
+int open(const char *file);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
 
 /* System call.
  *
@@ -45,7 +49,7 @@ void syscall_init(void) {
 void syscall_handler(struct intr_frame *f UNUSED) {
   /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
   int syscall_number =
-      f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
+      (int)f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
     case SYS_HALT:
@@ -63,18 +67,23 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       f->R.rax =
           write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
       break;
-    case SYS_SEEK:
+    case SYS_SEEK: {
       // 인자들 저장하고 함수 호출(인자2개)
       int fd = (int)f->R.rdi;
       unsigned position = (unsigned)f->R.rsi;
       seek(fd, position);
       break;
+    }
     case SYS_EXEC:
       // todo: implement
-    case SYS_TELL:
+    case SYS_TELL: {
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
       f->R.rax = tell(fd);  // 반환값 rax에 저장
+      break;
+    }
+    case SYS_OPEN:
+      f->R.rax = open((const char *)f->R.rdi);
       break;
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
@@ -143,4 +152,67 @@ int write(int fd, const void *buffer, unsigned size) {
   // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
   // unsigned bytes_written = file_write(file, buffer, max_write_size);
   // return bytes_written;
+}
+
+int open(const char *file) {
+  struct thread *curr = thread_current();
+
+  // 파일 유효성 검사
+  // 1. 기본 포인터 검증
+  if (!file) {
+    // exit(-1);
+    return -1;
+  }
+  // 2. 사용자 영역 확인
+  if (!is_user_vaddr(file)) {
+    // exit(-1);
+    return -1;
+  }
+
+  // 사용자 문자열을 커널 공간으로 복사
+  char kernel_file[256];
+
+  int i = 0;
+  while (i < 255) {
+    // 각 바이트마다 주소 유효성 검사
+    if (!is_user_vaddr((void*)(file + i))) {
+      // exit(-1);
+      return -1;
+    }
+    // pml4_get_page로 매핑 확인
+    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+      // exit(-1);
+      return -1;
+    }
+
+
+    // 안전하게 복사
+    kernel_file[i] = file[i];
+
+    // 문자열 끝 확인
+    if (file[i] == '\0') {
+      break;
+    }
+    i++;
+  }
+
+  // 파일 열기
+  struct file *f = filesys_open(kernel_file);
+  if (!f) {
+    return -1; // 파일 열기 실패
+  }
+
+  // 파일 디스크립터 할당
+  int fd = 2;
+  // fdt의 끝까지 탐색하는 while
+  while (fd < FDT_SIZE) {
+    if (curr->fdt[fd] == NULL) {
+      curr->fdt[fd] = f;
+      return fd;
+    }
+    fd++;
+  }
+
+  file_close(f);
+  return -1;
 }
