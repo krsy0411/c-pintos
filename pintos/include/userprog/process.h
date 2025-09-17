@@ -9,8 +9,5 @@ int process_exec(void *f_name);
 int process_wait(tid_t);
 void process_exit(void);
 void process_activate(struct thread *next);
-// 부모자식프로세스 관리
-void process_register_child (struct thread *parent, tid_t child_tid);
-void process_on_exit (int status);
 
 #endif /* userprog/process.h */
