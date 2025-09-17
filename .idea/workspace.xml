@@ -28,19 +28,8 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5a00a562-e9ff-40df-86f0-73ffe86fd0be" name="변경" comment="이 지점부터 협업 시작">
-      <change beforePath="$PROJECT_DIR$/.clang-format" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.devcontainer/Dockerfile" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.devcontainer/devcontainer.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.name" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/c-pintos.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" />
+    <list default="true" id="5a00a562-e9ff-40df-86f0-73ffe86fd0be" name="변경" comment="개인 파일 치우기">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -77,29 +66,9 @@
     <setting file="file://$PROJECT_DIR$/pintos/include/lib/user/syscall.h" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/pintos/include/threads/interrupt.h" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/pintos/include/threads/thread.h" root0="FORCE_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/include/threads/thread.h" root0="SKIP_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/pintos/threads/init.c" root0="FORCE_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/threads/thread.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/threads/thread.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/threads/thread.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/threads/thread.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/threads/thread.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/pintos/userprog/process.c" root0="FORCE_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/syscall.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/syscall.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/syscall.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/syscall.c" root0="SKIP_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/syscall.c" root0="SKIP_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/pintos/threads/init.c" root0="SKIP_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/pintos/userprog/process.c" root0="SKIP_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/pintos/userprog/syscall.c" root0="FORCE_HIGHLIGHTING" />
-    <setting file="mock:///Users/shinjungho/CLionProjects/c-pintos/pintos/userprog/syscall.c" root0="SKIP_HIGHLIGHTING" />
   </component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
@@ -174,7 +143,7 @@
       <workItem from="1757987629195" duration="17577000" />
       <workItem from="1758072716063" duration="310000" />
       <workItem from="1758073121016" duration="111000" />
-      <workItem from="1758073244129" duration="1127000" />
+      <workItem from="1758073244129" duration="1219000" />
     </task>
     <task id="LOCAL-00001" summary="test commit">
       <option name="closed" value="true" />
@@ -272,7 +241,15 @@
       <option name="project" value="LOCAL" />
       <updated>1758073890066</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="개인 파일 치우기">
+      <option name="closed" value="true" />
+      <created>1758074396048</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1758074396048</updated>
+    </task>
+    <option name="localTasksCounter" value="14" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -325,7 +302,9 @@
     <MESSAGE value="feat(syscall): WRITE 시스템 콜 추가&#10;&#10;- `SYS_WRITE`는 표준 출력(stdout)만 지원 (테스트용)" />
     <MESSAGE value="feat(process): process_wait() 임시 기능 구현&#10;&#10;- `process.c`에서 자식 노드의 상태를 확인하기 위해 all_list의 static제거 및 `thread.h` 선언 추가.&#10;- `all_list`로 `process_wait()`의 인자로 받아온 `child_tid`를 이용하여 자식 스레드의 상태를 확인하여 자식 프로세스가 종료될 때까지 기다림" />
     <MESSAGE value="이 지점부터 협업 시작" />
-    <option name="LAST_COMMIT_MESSAGE" value="이 지점부터 협업 시작" />
+    <MESSAGE value="Revert &quot;이 지점부터 협업 시작&quot;&#10;&#10;This reverts commit 679c180191aeb849593a82658edfbe5b0b44fc23." />
+    <MESSAGE value="개인 파일 치우기" />
+    <option name="LAST_COMMIT_MESSAGE" value="개인 파일 치우기" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
