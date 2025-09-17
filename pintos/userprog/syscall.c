@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
@@ -15,6 +16,7 @@
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 int write(int fd, const void *buffer, unsigned size);
+int open(const char *file);
 
 /* System call.
  *
@@ -45,7 +47,7 @@ void syscall_init(void) {
 void syscall_handler(struct intr_frame *f UNUSED) {
   /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
   int syscall_number =
-      f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
+      (int)f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
     case SYS_HALT:
@@ -62,6 +64,9 @@ void syscall_handler(struct intr_frame *f UNUSED) {
     case SYS_WRITE:
       f->R.rax =
           write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
+      break;
+    case SYS_OPEN:
+      f->R.rax = open((const char *)f->R.rdi);
       break;
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
@@ -104,4 +109,35 @@ int write(int fd, const void *buffer, unsigned size) {
   // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
   // unsigned bytes_written = file_write(file, buffer, max_write_size);
   // return bytes_written;
+}
+
+int open(const char *file) {
+  // struct thread *curr = thread_current();
+  //
+  // // 파일 유효성 검사
+  // if (!file) {
+  //   // -1 반환 이지만 테스트 케이스에서 exit(-1)을 요구할 수 있음.
+  //   return -1;
+  // }
+  // // 파일 열기
+  // struct file *f = filesys_open(file);
+  // if (!f) {
+  //   return -1;
+  // }
+  //
+  // // 파일 디스크립터 할당
+  // int fd = 2;
+  // // fdt의 끝까지 탐색하는 while
+  // while (1) {
+  //   if (curr->fdt[fd] == NULL) {
+  //     curr->fdt[fd] = f;
+  //     return fd;
+  //   }
+  //   fd++;
+  //   if (fd == curr->fdt->next) {
+  //     break;
+  //   }
+  // }
+
+  return -1;
 }
