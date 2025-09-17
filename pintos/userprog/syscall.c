@@ -78,6 +78,8 @@ void syscall_handler(struct intr_frame *f UNUSED) {
     }
     /* 파일 생성 */
     case SYS_CREATE:
+      f->R.rax = create((const char *)f->R.rdi, (unsigned)f->R.rsi);
+      break;
     /* 파일 삭제 */
     case SYS_REMOVE:
     case SYS_EXEC:
@@ -102,8 +104,7 @@ void syscall_handler(struct intr_frame *f UNUSED) {
 bool create(const char *file, unsigned initial_size) {
   /* 파일이 없으면 프로세스 종료 */
   if (file == NULL) {
-    process_exit(-1);
-    return false;
+    exit(-1);  // false 리턴 금지
   }
 
   char fname[NAME_MAX + 1];
@@ -113,23 +114,21 @@ bool create(const char *file, unsigned initial_size) {
     const char *u = file + fname_len;
 
     /* 유저 영역 검사 */
-    if ((void *)u >= LOADER_PHYS_BASE) {
-      process_exit(-1);
-      return false;
+    if (!is_user_vaddr(u)) {
+      exit(-1);  // false 리턴 금지
     }
 
     /* 안전하게 읽기 */
     uint8_t *k = pml4_get_page(thread_current()->pml4, u);
     if (k == NULL) {
-      sys_exit(-1);
-      return false;
+      exit(-1);  // false 리턴 금지
     }
 
     uint8_t b = *k;
     if (b == '\0') break;
 
     if (fname_len >= NAME_MAX) {
-      return false;
+      return false;  // create-long → false
     }
 
     fname[fname_len++] = (char)b;
@@ -138,10 +137,12 @@ bool create(const char *file, unsigned initial_size) {
   fname[fname_len] = '\0';
 
   if (fname_len == 0) {
-    return false;
+    return false;  // 빈 문자열은 실패
   }
 
-  bool ok = filesys_create(fname, initial_size);
+  bool ok;
+
+  ok = filesys_create(fname, initial_size);
 
   return ok;
 }
