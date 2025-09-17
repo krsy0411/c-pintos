@@ -1,6 +1,6 @@
 args-dbl-space PASS
 args-multiple PASS
-args-none PASS
+args-none FAIL
 halt PASS
 exit PASS
 args-many PASS
