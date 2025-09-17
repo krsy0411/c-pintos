@@ -19,7 +19,10 @@
         "stddef.h": "c",
         "random.h": "c",
         "flags.h": "c",
-        "file.h": "c"
+        "file.h": "c",
+        "off_t.h": "c",
+        "syscall-nr.h": "c",
+        "syscall.h": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",
