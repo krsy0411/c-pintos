@@ -14,14 +14,18 @@
 #include "threads/thread.h"
 #include "userprog/gdt.h"
 void syscall_entry(void);
-void syscall_handler(struct intr_frame *);
-int write(int fd, const void *buffer, unsigned size);
-int open(const char *file);
+void syscall_handler(struct intr_frame*);
+int write(int fd, const void* buffer, unsigned size);
+int open(const char* file);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
+<<<<<<< HEAD
 bool create(const char *file, unsigned initial_size);
 bool remove(const char *file);
 
+=======
+void exit(int status);
+>>>>>>> 481b758fa9fe62e7a7728a25b42702432874ab20
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -37,7 +41,7 @@ bool remove(const char *file);
 
 void syscall_init(void) {
   write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 | ((uint64_t)SEL_KCSEG)
-                                                               << 32);
+                      << 32);
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
 
   /* The interrupt service rountine should not serve any interrupts
@@ -48,26 +52,23 @@ void syscall_init(void) {
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED) {
+void syscall_handler(struct intr_frame* f UNUSED) {
   /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
   int syscall_number =
-      (int)f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
+      (int)f->R.rax; // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
     case SYS_HALT:
       power_off();
       break;
-    case SYS_EXIT:
+    case SYS_EXIT: {
       int status = (int)f->R.rdi;
-      struct thread *curr = thread_current();
-#ifdef USERPROG
-      curr->exit_status = status;
-#endif
-      thread_exit();
+      exit(status);
       break;
+    }
     case SYS_WRITE:
       f->R.rax =
-          write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
+          write((int)f->R.rdi, (const void*)f->R.rsi, (unsigned)f->R.rdx);
       break;
     case SYS_SEEK: {
       // 인자들 저장하고 함수 호출(인자2개)
@@ -83,15 +84,15 @@ void syscall_handler(struct intr_frame *f UNUSED) {
     /* 파일 삭제 */
     case SYS_REMOVE:
     case SYS_EXEC:
-      // todo: implement
+    // todo: implement
     case SYS_TELL: {
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
-      f->R.rax = tell(fd);  // 반환값 rax에 저장
+      f->R.rax = tell(fd); // 반환값 rax에 저장
       break;
     }
     case SYS_OPEN:
-      f->R.rax = open((const char *)f->R.rdi);
+      f->R.rax = open((const char*)f->R.rdi);
       break;
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
@@ -154,8 +155,8 @@ void seek(int fd, unsigned position) {
   if (!fd || fd < 2 || fd >= 128) return;
 
   // fdt에서 fd에 해당하는 파일 구조체 얻기
-  struct thread *curr = thread_current();
-  struct file *file = curr->fdt[fd];
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
 
   if (file == NULL) return;
 
@@ -166,21 +167,21 @@ void seek(int fd, unsigned position) {
 unsigned tell(int fd) {
   if (!fd || fd < 2 || fd >= 128) return -1;
 
-  struct thread *curr = thread_current();
-  struct file *file = curr->fdt[fd];
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
 
   if (file == NULL) return -1;
 
   return file_tell(file);
 }
 
-int write(int fd, const void *buffer, unsigned size) {
+int write(int fd, const void* buffer, unsigned size) {
   /* fd가 1이면 콘솔에 출력 : putbuf() 함수를 1번만 호출해서 전체 버퍼를 출력 */
   if (fd == 1) {
-    if ((size == 0) || (buffer == NULL)) return 0;  // 잘못된 경우 0 반환
+    if ((size == 0) || (buffer == NULL)) return 0; // 잘못된 경우 0 반환
 
     putbuf(buffer, size);
-    return size;  // 출력한 바이트 수 반환
+    return size; // 출력한 바이트 수 반환
   }
 
   /* ⭐️⭐️⭐️ 파일 쓰기 : 파일 크기 확장 불가 ⭐️⭐️⭐️ */
@@ -210,19 +211,17 @@ int write(int fd, const void *buffer, unsigned size) {
   // return bytes_written;
 }
 
-int open(const char *file) {
-  struct thread *curr = thread_current();
+int open(const char* file) {
+  struct thread* curr = thread_current();
 
   // 파일 유효성 검사
   // 1. 기본 포인터 검증
   if (!file) {
-    // exit(-1);
-    return -1;
+    exit(-1);
   }
   // 2. 사용자 영역 확인
   if (!is_user_vaddr(file)) {
-    // exit(-1);
-    return -1;
+    exit(-1);
   }
 
   // 사용자 문자열을 커널 공간으로 복사
@@ -231,6 +230,7 @@ int open(const char *file) {
   int i = 0;
   while (i < 255) {
     // 각 바이트마다 주소 유효성 검사
+<<<<<<< HEAD
     if (!is_user_vaddr((void *)(file + i))) {
       // exit(-1);
       return -1;
@@ -239,6 +239,14 @@ int open(const char *file) {
     if (!pml4_get_page(curr->pml4, (void *)(file + i))) {
       // exit(-1);
       return -1;
+=======
+    if (!is_user_vaddr((void*)(file + i))) {
+      exit(-1);
+    }
+    // pml4_get_page로 매핑 확인
+    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+      exit(-1);
+>>>>>>> 481b758fa9fe62e7a7728a25b42702432874ab20
     }
 
     // 안전하게 복사
@@ -252,7 +260,7 @@ int open(const char *file) {
   }
 
   // 파일 열기
-  struct file *f = filesys_open(kernel_file);
+  struct file* f = filesys_open(kernel_file);
   if (!f) {
     return -1;  // 파일 열기 실패
   }
@@ -270,4 +278,12 @@ int open(const char *file) {
 
   file_close(f);
   return -1;
+}
+
+void exit(int status) {
+  struct thread* curr = thread_current();
+#ifdef USERPROG
+  curr->exit_status = status;
+#endif
+  thread_exit();
 }
