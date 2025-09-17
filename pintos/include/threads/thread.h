@@ -109,8 +109,10 @@ struct thread {
 
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
-  uint64_t *pml4;  /* Page map level 4 */
-  int exit_status; /* Process exit status */
+  uint64_t *pml4;     /* Page map level 4 */
+  int exit_status;    /* Process exit status */
+  struct file **fdt;  // 파일 디스크립터 테이블
+
 #endif
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */

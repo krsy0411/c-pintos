@@ -41,11 +41,6 @@ void syscall_init(void) {
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-// exit, halt, write
-static void sys_exit(int status) NO_RETURN;
-static void sys_halt(void);
-static int sys_write(int fd, const void *buf, unsigned len);
-
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f UNUSED) {
   /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
@@ -68,11 +63,47 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       f->R.rax =
           write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
       break;
+    case SYS_SEEK:
+      // 인자들 저장하고 함수 호출(인자2개)
+      int fd = (int)f->R.rdi;
+      unsigned position = (unsigned)f->R.rsi;
+      seek(fd, position);
+      break;
+    case SYS_TELL:
+      // 인자 저장하고 함수 호출(인자 1개)
+      int fd = (int)f->R.rdi;
+      f->R.rax = tell(fd);  // 반환값 rax에 저장
+      break;
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
       thread_exit();
   }
+}
+
+void seek(int fd, unsigned position) {
+  // 잘못된 fd인 경우 리턴
+  if (!fd || fd < 2 || fd >= 128) return;
+
+  // fdt에서 fd에 해당하는 파일 구조체 얻기
+  struct thread *curr = thread_current();
+  struct file *file = curr->fdt[fd];
+
+  if (file == NULL) return;
+
+  // file_seek() 함수 호출
+  file_seek(file, position);
+}
+
+unsigned tell(int fd) {
+  if (!fd || fd < 2 || fd >= 128) return -1;
+
+  struct thread *curr = thread_current();
+  struct file *file = curr->fdt[fd];
+
+  if (file == NULL) return -1;
+
+  return file_tell(file);
 }
 
 int write(int fd, const void *buffer, unsigned size) {
@@ -109,12 +140,4 @@ int write(int fd, const void *buffer, unsigned size) {
   // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
   // unsigned bytes_written = file_write(file, buffer, max_write_size);
   // return bytes_written;
-}
-
-static int sys_write(int fd, const void *buf, unsigned len) {
-  if (fd != 1) return -1;
-  if (len == 0) return 0;
-
-  putbuf((const char *)buf, (size_t)len);
-  return (int)len;
 }
