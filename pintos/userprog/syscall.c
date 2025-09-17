@@ -69,6 +69,8 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       unsigned position = (unsigned)f->R.rsi;
       seek(fd, position);
       break;
+    case SYS_EXEC:
+      // todo: implement
     case SYS_TELL:
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
@@ -81,6 +83,7 @@ void syscall_handler(struct intr_frame *f UNUSED) {
   }
 }
 
+// process_get_file() 함수 구현하면 아래 함수들에서 사용 가능
 void seek(int fd, unsigned position) {
   // 잘못된 fd인 경우 리턴
   if (!fd || fd < 2 || fd >= 128) return;
