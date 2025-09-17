@@ -165,38 +165,20 @@ int write(int fd, const void* buffer, unsigned size) {
 int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
-  // 버퍼 유효성 검사 (모든 fd에 대해 먼저 수행)
-  if (buffer == NULL) return -1;
-  if (!is_user_vaddr(buffer) || !is_user_vaddr(buffer + size - 1)) {
-    // 잘못된 포인터 접근 시 프로세스 종료
-    struct thread* curr = thread_current();
-#ifdef USERPROG
-    curr->exit_status = -1;
-#endif
-    thread_exit();
-  }
-
-  // size가 0인 경우는 정상적인 요청으로 0 반환
-  if (size == 0) return 0;
-
   if (fd == 0) {
-    // stdin에서 읽기(표준 입력)
-    for (unsigned i = 0; i < size; i++) {
-      *((uint8_t*)buffer + i) = (uint8_t)input_getc();
-    }
-    bytes_read = size;
+    bytes_read = input_getc();
   } else {
-    // fd 유효성 검사 강화
-    if (fd < 0 || fd >= 128) return -1;  // 음수이거나 너무 큰 fd
-    if (fd == 1 || fd == 2) return -1;   // stdout, stderr은 읽기 불가
+    // 잘못된 fd인 경우 리턴
+    if (!fd || fd < 2 || fd >= 128) return -1;
 
-    // TODO: 파일 디스크립터 찾기 및 파일 읽기
-    // struct file_descriptor *curr_fd = find_file_descriptor(fd);
-    // if (curr_fd == NULL) return -1;
-    // bytes_read = file_read(curr_fd->file, buffer, size);
+    // fdt에서 fd에 해당하는 파일 구조체 얻기
+    struct thread* curr = thread_current();
+    struct file* file = curr->fdt[fd];
 
-    // 임시로 -1 반환 (파일 시스템 구현 필요)
-    bytes_read = -1;
+    if (file == NULL) return -1;
+
+    // file_read() 함수 호출
+    bytes_read = file_read(file, buffer, size);
   }
 
   return bytes_read;
