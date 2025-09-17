@@ -31,8 +31,3 @@ core
 
 # VSCode
 .vscode/
-
-# 개인 파일
-.idea
-.clang-format
-CMakeLists.txt
