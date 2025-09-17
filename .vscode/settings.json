@@ -22,7 +22,8 @@
         "file.h": "c",
         "off_t.h": "c",
         "syscall-nr.h": "c",
-        "syscall.h": "c"
+        "syscall.h": "c",
+        "tss.h": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",
