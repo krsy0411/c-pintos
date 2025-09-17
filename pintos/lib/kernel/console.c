@@ -129,7 +129,6 @@ int puts(const char *s) {
 
 /* Writes the N characters in BUFFER to the console. */
 void putbuf(const char *buffer, size_t n) {
-  printf("3번 경로!!!!!");
   acquire_console();
   while (n-- > 0) putchar_have_lock(*buffer++);
   release_console();

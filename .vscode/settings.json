@@ -21,7 +21,8 @@
         "flags.h": "c",
         "file.h": "c",
         "main.h": "c",
-        "lib.h": "c"
+        "lib.h": "c",
+        "disk.h": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",

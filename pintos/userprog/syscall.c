@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "filesys/directory.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
@@ -11,7 +12,6 @@
 #include "threads/loader.h"
 #include "threads/thread.h"
 #include "userprog/gdt.h"
-
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 int write(int fd, const void *buffer, unsigned size);
@@ -63,11 +63,18 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       f->R.rax =
           write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
       break;
+    /* 파일 생성 case*/
+    case SYS_CREATE:
+
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
       thread_exit();
   }
+}
+/* 파일 생성 함수 */
+bool create(char *file, int initial_size) {
+  // #define NAME_MAX 14
 }
 
 int write(int fd, const void *buffer, unsigned size) {
