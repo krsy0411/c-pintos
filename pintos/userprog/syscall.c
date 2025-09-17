@@ -155,29 +155,64 @@ int write(int fd, const void *buffer, unsigned size) {
 }
 
 int open(const char *file) {
-  // struct thread *curr = thread_current();
-  //
-  // // 파일 유효성 검사
-  // if (!file || !is_user_vaddr(file)) {
-  //   exit(-1); // 테스트 케이스에서 -1반환이 아닌 exit(-1)을 요구
-  // }
-  // // 파일 열기
-  // struct file *f = filesys_open(file);
-  // if (!f) {
-  //   return -1; // 파일 열기 실패
-  // }
-  //
-  // // 파일 디스크립터 할당
-  // int fd = 2;
-  // // fdt의 끝까지 탐색하는 while
-  // while (fd < 128) {
-  //   if (curr->fdt[fd] == NULL) {
-  //     curr->fdt[fd] = f;
-  //     return fd;
-  //   }
-  //   fd++;
-  // }
-  //
-  // file_close(f);
+  struct thread *curr = thread_current();
+
+  // 파일 유효성 검사
+  // 1. 기본 포인터 검증
+  if (!file) {
+    // exit(-1);
+    return -1;
+  }
+
+  // 2. 사용자 영역 확인
+  if (!is_user_vaddr(file)) {
+    // exit(-1);
+    return -1;
+  }
+
+  // 사용자 문자열을 커널 공간으로 복사
+  char kernel_file[256];
+
+  int i = 0;
+  while (i < 255) {
+    // 각 바이트마다 주소 유효성 검사
+    if (!is_user_vaddr((void*)(file + i))) {
+      // exit(-1);
+      return -1;
+    }
+    // pml4_get_page로 매핑 확인
+    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+      // exit(-1);
+      return -1;
+    }
+
+
+    // 안전하게 복사
+    kernel_file[i] = file[i];
+
+    // 문자열 끝 확인
+    if (file[i] == '\0') {
+      break;
+    }
+    i++;
+  }
+  // 파일 열기
+  struct file *f = filesys_open(kernel_file);
+  if (!f) {
+    return -1; // 파일 열기 실패
+  }
+
+  // 파일 디스크립터 할당
+  int fd = 2;
+  // fdt의 끝까지 탐색하는 while
+  while (fd < 128) {
+    if (curr->fdt[fd] == NULL) {
+      curr->fdt[fd] = f;
+      return fd;
+    }
+    fd++;
+  }
+
+  file_close(f);
   return -1;
 }
