@@ -20,10 +20,14 @@
         "random.h": "c",
         "flags.h": "c",
         "file.h": "c",
+        "main.h": "c",
+        "lib.h": "c",
+        "disk.h": "c",
         "off_t.h": "c",
         "syscall-nr.h": "c",
         "syscall.h": "c",
-        "tss.h": "c"
+        "tss.h": "c",
+        "cstdlib": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",

@@ -140,7 +140,7 @@ extern bool thread_mlfqs;
 
 void thread_init(void);
 void thread_start(void);
-
+extern struct list all_list;  // 모든 스레드를 담는 리스트(priority 재계산 용도)
 void thread_tick(void);
 void thread_print_stats(void);
 
