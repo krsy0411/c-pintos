@@ -3,8 +3,6 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
-#include "devices/input.h"
-#include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
@@ -17,13 +15,16 @@
 #include "userprog/gdt.h"
 
 void syscall_entry(void);
-void syscall_handler(struct intr_frame *);
+void syscall_handler(struct intr_frame*);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
-int write(int fd, const void *buffer, unsigned size);
-int read(int fd, void *buffer, unsigned size);
-int open(const char *file_name);
-
+int write(int fd, const void* buffer, unsigned size);
+int read(int fd, void* buffer, unsigned size);
+int open(const char* file_name);
+int open(const char* file);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
+void exit(int status);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -50,54 +51,42 @@ void syscall_init(void) {
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED) {
+void syscall_handler(struct intr_frame* f UNUSED) {
   /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
   int syscall_number =
-      f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
+      (int)f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
     case SYS_HALT: {
       power_off();
       break;
-    }
-    case SYS_EXIT: {
-      int status = (int)f->R.rdi;
-      struct thread *curr = thread_current();
-#ifdef USERPROG
-      curr->exit_status = status;
-#endif
-      thread_exit();
-      break;
-    }
-    case SYS_WRITE: {
-      f->R.rax =
-          write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
-      break;
-    }
-    case SYS_READ: {
-      f->R.rax = read((int)f->R.rdi, (void *)f->R.rsi, (unsigned)f->R.rdx);
-      break;
-    }
-    case SYS_OPEN: {
-      f->R.rax = open((const char *)f->R.rdi);
-      break;
-    }
-    case SYS_SEEK: {
-      // 인자들 저장하고 함수 호출(인자2개)
-      int fd = (int)f->R.rdi;
-      unsigned position = (unsigned)f->R.rsi;
-      seek(fd, position);
-      break;
-    }
-    case SYS_EXEC: {
+      case SYS_EXIT: {
+        int status = (int)f->R.rdi;
+        exit(status);
+        break;
+      }
+      case SYS_WRITE:
+        f->R.rax =
+            write((int)f->R.rdi, (const void*)f->R.rsi, (unsigned)f->R.rdx);
+        break;
+      case SYS_SEEK: {
+        // 인자들 저장하고 함수 호출(인자2개)
+        int fd = (int)f->R.rdi;
+        unsigned position = (unsigned)f->R.rsi;
+        seek(fd, position);
+        break;
+      }
+      case SYS_EXEC:
       // todo: implement
-      break;
-    }
-    case SYS_TELL: {
-      // 인자 저장하고 함수 호출(인자 1개)
-      int fd = (int)f->R.rdi;
-      f->R.rax = tell(fd);  // 반환값 rax에 저장
-      break;
+      case SYS_TELL: {
+        // 인자 저장하고 함수 호출(인자 1개)
+        int fd = (int)f->R.rdi;
+        f->R.rax = tell(fd);  // 반환값 rax에 저장
+        break;
+      }
+      case SYS_OPEN:
+        f->R.rax = open((const char*)f->R.rdi);
+        break;
     }
     default: {
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
@@ -114,8 +103,8 @@ void seek(int fd, unsigned position) {
   if (!fd || fd < 2 || fd >= 128) return;
 
   // fdt에서 fd에 해당하는 파일 구조체 얻기
-  struct thread *curr = thread_current();
-  struct file *file = curr->fdt[fd];
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
 
   if (file == NULL) return;
 
@@ -126,15 +115,15 @@ void seek(int fd, unsigned position) {
 unsigned tell(int fd) {
   if (!fd || fd < 2 || fd >= 128) return -1;
 
-  struct thread *curr = thread_current();
-  struct file *file = curr->fdt[fd];
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
 
   if (file == NULL) return -1;
 
   return file_tell(file);
 }
 
-int write(int fd, const void *buffer, unsigned size) {
+int write(int fd, const void* buffer, unsigned size) {
   /* fd가 1이면 콘솔에 출력 : putbuf() 함수를 1번만 호출해서 전체 버퍼를 출력 */
   if (fd == 1) {
     if ((size == 0) || (buffer == NULL)) return 0;  // 잘못된 경우 0 반환
@@ -173,14 +162,14 @@ int write(int fd, const void *buffer, unsigned size) {
   return -1;
 }
 
-int read(int fd, void *buffer, unsigned size) {
+int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
   // 버퍼 유효성 검사 (모든 fd에 대해 먼저 수행)
   if (buffer == NULL) return -1;
   if (!is_user_vaddr(buffer) || !is_user_vaddr(buffer + size - 1)) {
     // 잘못된 포인터 접근 시 프로세스 종료
-    struct thread *curr = thread_current();
+    struct thread* curr = thread_current();
 #ifdef USERPROG
     curr->exit_status = -1;
 #endif
@@ -193,7 +182,7 @@ int read(int fd, void *buffer, unsigned size) {
   if (fd == 0) {
     // stdin에서 읽기(표준 입력)
     for (unsigned i = 0; i < size; i++) {
-      *((uint8_t *)buffer + i) = (uint8_t)input_getc();
+      *((uint8_t*)buffer + i) = (uint8_t)input_getc();
     }
     bytes_read = size;
   } else {
@@ -213,13 +202,13 @@ int read(int fd, void *buffer, unsigned size) {
   return bytes_read;
 }
 
-int open(const char *file_name) {
+int open(const char* file_name) {
   // 파일명 유효성 검사
   if (file_name == NULL) return -1;
   if (!is_user_vaddr(file_name)) return -1;
 
   // 파일시스템을 통해 파일 열기
-  struct file *file = filesys_open(file_name);
+  struct file* file = filesys_open(file_name);
   if (file == NULL) return -1;
 
   // 간단한 fd 할당 (2부터 시작, stdin=0, stdout=1)
@@ -232,4 +221,69 @@ int open(const char *file_name) {
   file_close(file);
 
   return fd;  // 임시로 fd만 반환
+}
+int open(const char* file) {
+  struct thread* curr = thread_current();
+
+  // 파일 유효성 검사
+  // 1. 기본 포인터 검증
+  if (!file) {
+    exit(-1);
+  }
+  // 2. 사용자 영역 확인
+  if (!is_user_vaddr(file)) {
+    exit(-1);
+  }
+
+  // 사용자 문자열을 커널 공간으로 복사
+  char kernel_file[256];
+
+  int i = 0;
+  while (i < 255) {
+    // 각 바이트마다 주소 유효성 검사
+    if (!is_user_vaddr((void*)(file + i))) {
+      exit(-1);
+    }
+    // pml4_get_page로 매핑 확인
+    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+      exit(-1);
+    }
+
+    // 안전하게 복사
+    kernel_file[i] = file[i];
+
+    // 문자열 끝 확인
+    if (file[i] == '\0') {
+      break;
+    }
+    i++;
+  }
+
+  // 파일 열기
+  struct file* f = filesys_open(kernel_file);
+  if (!f) {
+    return -1;  // 파일 열기 실패
+  }
+
+  // 파일 디스크립터 할당
+  int fd = 2;
+  // fdt의 끝까지 탐색하는 while
+  while (fd < FDT_SIZE) {
+    if (curr->fdt[fd] == NULL) {
+      curr->fdt[fd] = f;
+      return fd;
+    }
+    fd++;
+  }
+
+  file_close(f);
+  return -1;
+}
+
+void exit(int status) {
+  struct thread* curr = thread_current();
+#ifdef USERPROG
+  curr->exit_status = status;
+#endif
+  thread_exit();
 }

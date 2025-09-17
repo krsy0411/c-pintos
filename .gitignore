@@ -28,3 +28,15 @@ core
 
 # macOS
 .DS_Store
+
+# VSCode
+.vscode/
+
+# 98jh-shin
+.devcontainer
+.idea
+.clang-format
+CMakeLists.txt
+/pintos/.nuget/
+/pintos/.java/
+/pintos/.gitconfig
