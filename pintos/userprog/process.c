@@ -25,9 +25,11 @@
 #endif
 
 static void process_cleanup(void);
-static bool load(const char *file_name[], struct intr_frame *if_);
+static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
+static bool setup_stack(struct intr_frame *if_);
+void setup_arguments(struct intr_frame *if_, int argc, char **argv);
 
 /* General process initializer for initd and other process. */
 static void process_init(void) { struct thread *current = thread_current(); }
@@ -46,12 +48,26 @@ tid_t process_create_initd(const char *file_name) {
   fn_copy = palloc_get_page(0);
   if (fn_copy == NULL) return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
-  char *temp_save;
-  char *single_name = strtok_r(file_name, " ", &temp_save);
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(single_name, PRI_DEFAULT, initd, fn_copy);
-  if (tid == TID_ERROR) palloc_free_page(fn_copy);
+  /* 파싱 없이 전체 명령행을 그대로 스레드 이름으로 사용
+   * (실제 파싱은 process_exec에서 처리)
+   */
+  char thread_name[16];  // 스레드 이름은 최대 16자
+  strlcpy(thread_name, file_name, sizeof(thread_name));
+
+  /* 스레드 이름이 너무 길면 첫 번째 단어만 사용 */
+  char *space_pos = strchr(thread_name, ' ');
+  if (space_pos != NULL) {
+    *space_pos = '\0';  // 첫 번째 공백에서 문자열 종료
+  }
+
+  /* FILE_NAME을 실행할 새 스레드 생성 */
+  tid = thread_create(thread_name, PRI_DEFAULT, initd, fn_copy);
+  if (tid == TID_ERROR) {
+    /* 스레드 생성 실패 */
+    palloc_free_page(fn_copy);
+  }
+
   return tid;
 }
 
@@ -146,25 +162,63 @@ error:
   thread_exit();
 }
 
+void setup_arguments(struct intr_frame *if_, int argc, char **argv) {
+  // 1) 스택 프레임 초기화
+  char *stack_ptr = (char *)if_->rsp;
+
+  // 2) 각 인자 문자열을 스택에 역순으로 복사
+  char *argv_addresses[argc];
+  for (int i = argc - 1; i >= 0; i--) {
+    size_t arg_len = strlen(argv[i]) + 1;  // 널 문자('\0') 포함
+
+    stack_ptr -= arg_len;  // 문자열 길이만큼 스택 포인터 감소
+    memcpy(stack_ptr, argv[i], arg_len);
+    argv_addresses[i] = stack_ptr;  // 주소 기록
+  }
+
+  // 3) 워드 정렬
+  while ((uintptr_t)stack_ptr % 8 != 0) {
+    stack_ptr--;
+    *stack_ptr = 0;  // 패딩 바이트로 0 채우기
+  }
+
+  // 4) NULL 포인터 추가(배열의 끝 표시) : 표준 규약을 지키기 위해서
+  stack_ptr -= sizeof(char *);  // 8바이트 감소
+  *(char **)stack_ptr = NULL;   // NULL 포인터 저장
+
+  // 5) argv 포인터들을 역순으로 저장
+  for (int i = (argc - 1); i >= 0; i--) {
+    stack_ptr -= sizeof(char *);  // 포인터 크기(8바이트)만큼 감소
+    *(char **)stack_ptr =
+        argv_addresses[i];  // 앞서 저장한 주소를 포인터로 저장
+  }
+
+  // 6) argv 주소 저장
+  char **argv_ptr = (char **)stack_ptr;  // 현재 argv 배열의 시작 주소 저장
+  stack_ptr -= sizeof(char **);          // 포인터 크기(8바이트)만큼 감소
+  *(char ***)stack_ptr = argv_ptr;       // argv 배열의 주소를 스택에 저장
+
+  // 7) argc 저장 (4바이트 정렬을 위해 8바이트 공간 사용)
+  stack_ptr -= sizeof(uint64_t);  // 8바이트 감소로 정렬 유지
+  *(int *)stack_ptr = argc;       // argc 값을 스택에 저장
+
+  // 8) 가짜 반환 주소 저장
+  stack_ptr -= sizeof(void *);  // 포인터 크기(8바이트)만큼 감소
+  *(void **)stack_ptr = 0;      // 가짜 반환 주소(0)를 스택에 저장
+
+  // 9) 최종 rsp(스택 포인터) 업데이트
+  if_->rsp = (uint64_t)stack_ptr;
+
+  // 10) 레지스터 설정 : 인자 전달
+  if_->R.rdi = argc;                // 첫 번째 인자 : argc
+  if_->R.rsi = (uint64_t)argv_ptr;  // 두 번째 인자 : argv
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
-// (프로세스 -> 스레드) 다시 다시 자식 프로세스 자식 스레드
 int process_exec(void *f_name) {
-  char *file_name = (char *)f_name;
+  char *file_name = f_name;
   bool success;
-  char *token, *save_ptr;
-  int argc = 0;
-  char *argv[128];
-  char *temp_line = palloc_get_page(0);
-  if (temp_line == NULL) return -1;
-  strlcpy(temp_line, file_name, PGSIZE);
-  token = strtok_r(temp_line, " ", &save_ptr);
-
-  while (token != NULL && argc < 127) {
-    argv[argc] = token;
-    argc++;
-    token = strtok_r(NULL, " ", &save_ptr);
-  }
 
   // ⭐️⭐️⭐️ 프로세스 교체 함수 ⭐️⭐️⭐️
 
@@ -176,20 +230,52 @@ int process_exec(void *f_name) {
   _if.ds = _if.es = _if.ss = SEL_UDSEG;  // 사용자 데이터 세그먼트
   _if.cs = SEL_UCSEG;  // 사용자 코드 세그먼트 : 사용자 모드로 설정
   _if.eflags = FLAG_IF | FLAG_MBS;
-
   // 👆👆👆
 
   // 👇👇👇 기존 프로세스 자원(메모리, 페이지 테이블) 정리
   process_cleanup();
 
+  // 🏁🏁🏁 Project 2 : argument passing 🏁🏁🏁
+  // 2.1) 파일 이름 복사(원본 보호)
+  char *file_name_cpy = palloc_get_page(0);
+  if (file_name_cpy == NULL) {
+    palloc_free_page(file_name);
+    return -1;
+  }
+  strlcpy(file_name_cpy, file_name, PGSIZE);
+
+  // 2.1) 변수 설정
+  char *token, *save_ptr;
+  char *argv[128];  // 인자 길이 제한 : 128 바이트
+  int argc = 0;
+
+  // 2.2) 토큰화 & argv 배열에 저장
+  token = strtok_r(file_name_cpy, " ", &save_ptr);  // 2번째 인자는 구분자
+  char *actual_file_name = token;
+
+  while (token != NULL) {
+    argv[argc] = token;                      // argv 배열에 토큰 저장
+    argc++;                                  // 인자 개수 증가
+    token = strtok_r(NULL, " ", &save_ptr);  // 다음 토큰 검색
+  }
+
   // 👇👇👇 ELF 파일 파싱 & 메모리 로드 : 파일 이름 복사 및 프로그램 이름
   // 추출(새 프로그램 로드)
-  success = load(argv, &_if);
+  success = load(actual_file_name, &_if);
+  // 👆👆👆
+  /* 로드에 성공하지 못했으면, 메모리 할당 해제하고 함수 종료 */
+  if (!success) {
+    palloc_free_page(file_name);
+    palloc_free_page(file_name_cpy);
+    return -1;
+  }
 
-  /* If load failed, quit. */
+  // 2.4) 인자 전달 (스택은 load 함수에서 이미 설정됨)
+  setup_arguments(&_if, argc, argv);
+
+  /* 메모리 해제 : file_name 메모리 해제 */
   palloc_free_page(file_name);
-  palloc_free_page(temp_line);
-  if (!success) return -1;
+  palloc_free_page(file_name_cpy);
 
   // 👇👇👇 사용자 모드로 전환(새 프로그램으로 영구 전환)
   do_iret(&_if);  // 점프(즉, 돌아올 수 없음)
@@ -210,30 +296,13 @@ int process_wait(tid_t child_tid UNUSED) {
   /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
    * XXX:       to add infinite loop here before
    * XXX:       implementing the process_wait. */
-  struct thread *child = NULL;
-  struct list_elem *e;
-
-  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-    struct thread *t = list_entry(e, struct thread, all_elem);
-    if (t->tid == child_tid) {
-      child = t;
-      break;
-    }
-  }
-
-  // 2. child가 없으면 -1 반환
-  if (child == NULL) {
-    return -1;
-  }
-
-  // 3. child가 죽을 때까지 기다리기
-  while (child->status != THREAD_DYING) {
-    thread_yield();  // CPU 양보하면서 기다리기
-  }
 
   // TODO: Implement proper process_wait functionality
-  // For now, return immediately to avoid infinite loop
-  return 0;
+  // For now, use thread_yield() in a loop to avoid blocking the scheduler
+  for (int i = 0; i < 10000; i++) {
+    thread_yield();
+  }
+  return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -243,7 +312,9 @@ void process_exit(void) {
    * TODO: Implement process termination message (see
    * TODO: project2/process_termination.html).
    * TODO: We recommend you to implement process resource cleanup here. */
-
+#ifdef USERPROG
+  printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+#endif
   process_cleanup();
 }
 
@@ -346,10 +417,9 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
  * Stores the executable's entry point into *RIP
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
-static bool load(const char *argv[], struct intr_frame *if_) {
+static bool load(const char *file_name, struct intr_frame *if_) {
   struct thread *t = thread_current();
   struct ELF ehdr;
-  char *file_name = argv[0];
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
@@ -432,45 +502,7 @@ static bool load(const char *argv[], struct intr_frame *if_) {
 
   /* Start address. */
   if_->rip = ehdr.e_entry;
-  char *arg_addresses[128];
-  void *stack_ptr = if_->rsp;
 
-  /* argc 값 산출 */
-  int argc = 0;
-  while (argv[argc] != NULL) {
-    argc++;
-  }
-  for (int i = argc - 1; i >= 0; i--) {
-    int len = (int)strnlen(argv[i], PGSIZE) + 1;
-    stack_ptr -= len;
-    memcpy(stack_ptr, argv[i], len);
-    arg_addresses[i] = stack_ptr;
-  }
-
-  uintptr_t stack_addr = (uintptr_t)stack_ptr;
-  stack_addr &= ~(8 - 1);
-  stack_ptr = (char *)stack_addr;
-
-  stack_ptr -= sizeof(char *);
-  *(uint64_t *)stack_ptr = NULL;
-
-  for (int i = argc - 1; i >= 0; i--) {
-    stack_ptr -= sizeof(char *);
-    *(uint64_t *)stack_ptr = arg_addresses[i];
-  }
-
-  void *argv_addr = (void *)stack_ptr;
-  // Align stack pointer to 16 bytes for the System V ABI.
-  int padding = (uintptr_t)stack_ptr % 16;
-  if (padding != 0) {
-    stack_ptr -= padding;
-    memset(stack_ptr, 0, padding);
-  }
-
-  if_->R.rsi = (uintptr_t)argv_addr;
-  if_->R.rdi = argc;
-
-  if_->rsp = (uintptr_t)stack_ptr;
   /* TODO: Your code goes here.
    * TODO: Implement argument passing (see project2/argument_passing.html). */
 

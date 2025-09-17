@@ -3,19 +3,19 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "filesys/off_t.h"
 #include "intrinsic.h"
-#include "kernel/stdio.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/loader.h"
 #include "threads/thread.h"
 #include "userprog/gdt.h"
-#include "userprog/process.h"
+
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
-void sys_write(int fd, const void *buffer, size_t size);
-void sys_exit(int status);
+int write(int fd, const void *buffer, unsigned size);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -42,38 +42,66 @@ void syscall_init(void) {
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f) {
-  // TODO: Your implementation goes here.
-  if (f->R.rax == SYS_HALT) {
-    power_off();
-  } else if (f->R.rax == SYS_EXIT) {
-    sys_exit(f->R.rdi);
-  } else if (f->R.rax == SYS_WRITE) {
-    sys_write(f->R.rdi, (const void *)f->R.rsi, f->R.rdx);
-  } else if (f->R.rax == SYS_WAIT) {
-    f->R.rax = process_wait(f->R.rdi);
+void syscall_handler(struct intr_frame *f UNUSED) {
+  /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
+  int syscall_number =
+      f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
+
+  switch (syscall_number) {
+    case SYS_HALT:
+      power_off();
+      break;
+    case SYS_EXIT:
+      int status = (int)f->R.rdi;
+      struct thread *curr = thread_current();
+#ifdef USERPROG
+      curr->exit_status = status;
+#endif
+      thread_exit();
+      break;
+    case SYS_WRITE:
+      f->R.rax =
+          write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
+      break;
+    default:
+      printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
+             syscall_number);
+      thread_exit();
   }
 }
 
-void sys_exit(int status) {
-  struct thread *cur = thread_current();
-  cur->exit_status = status;
-  printf("%s: exit(%d)\n", thread_name(), status);
-  thread_exit();
-}
-void sys_write(int fd, const void *buffer, size_t size) {
-  if (buffer == NULL || is_user_vaddr(buffer) == false ||
-      pml4_get_page(thread_current()->pml4, buffer) == NULL) {
-    sys_exit(-1);  // 잘못된 주소 접근 시 강제 종료
-  }
-
+int write(int fd, const void *buffer, unsigned size) {
+  /* fd가 1이면 콘솔에 출력 : putbuf() 함수를 1번만 호출해서 전체 버퍼를 출력 */
   if (fd == 1) {
+    if ((size == 0) || (buffer == NULL)) return 0;  // 잘못된 경우 0 반환
+
     putbuf(buffer, size);
-    return size;
-  } else {
-    sys_exit(-1);  // 지원하지 않는 fd
+    return size;  // 출력한 바이트 수 반환
   }
 
-  // struct thread *cur = thread_current();
-  // struct file *fd_tb = cur->fd_table[fd];
+  /* ⭐️⭐️⭐️ 파일 쓰기 : 파일 크기 확장 불가 ⭐️⭐️⭐️ */
+  // struct file *file =
+  //     process_get_file(fd); /* 파일 디스크립터로부터 파일 구조체 얻기 */
+  // if (file == NULL || buffer == NULL || size == 0) return 0;
+
+  // // 파일 끝까지 최대한 많이 쓰기
+  // off_t length = file_length(file);  // 파일 전체 크기
+  // off_t file_pos = file_tell(file);  // 현재 파일 포인터 위치
+  // unsigned max_write_size = 0;       // 실제로 쓸 수 있는 최대 바이트 수
+
+  // // 파일 끝까지 쓸 수 있는 바이트 수 계산
+  // if (file_pos < length) {
+  //   // 파일 포인터가 파일 끝보다 앞에 있는 경우 : 남는 공간만큼 사용 가능
+  //   max_write_size = length - file_pos;
+
+  //   if (size < max_write_size)
+  //     // 남는 공간보다 요청 크기가 더 작으면 : 요청 크기만큼만 사용
+  //     max_write_size = size;
+  // } else {
+  //   max_write_size = 0;
+  // }
+
+  // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
+  // unsigned bytes_written = file_write(file, buffer, max_write_size);
+  // return bytes_written;
 }
