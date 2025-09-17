@@ -31,3 +31,8 @@ core
 
 # VSCode
 .vscode/
+
+# 98jh-shin
+.idea
+.clang-format
+CMakeLists.txt
