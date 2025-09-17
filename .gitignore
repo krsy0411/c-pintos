@@ -34,6 +34,3 @@ core
 .idea
 CMakeList.txt
 .clang-format
-/CMakeLists.txt
-/.devcontainer/devcontainer.json
-/.devcontainer/Dockerfile
