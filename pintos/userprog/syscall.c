@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "devices/input.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
@@ -10,12 +13,16 @@
 #include "threads/interrupt.h"
 #include "threads/loader.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/gdt.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
 int write(int fd, const void *buffer, unsigned size);
 int read(int fd, void *buffer, unsigned size);
+int open(const char *file_name);
 
 /* System call.
  *
@@ -49,10 +56,11 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
-    case SYS_HALT:
+    case SYS_HALT: {
       power_off();
       break;
-    case SYS_EXIT:
+    }
+    case SYS_EXIT: {
       int status = (int)f->R.rdi;
       struct thread *curr = thread_current();
 #ifdef USERPROG
@@ -60,29 +68,43 @@ void syscall_handler(struct intr_frame *f UNUSED) {
 #endif
       thread_exit();
       break;
-    case SYS_WRITE:
+    }
+    case SYS_WRITE: {
       f->R.rax =
           write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
       break;
-    case SYS_READ:
-
-    case SYS_SEEK:
+    }
+    case SYS_READ: {
+      f->R.rax = read((int)f->R.rdi, (void *)f->R.rsi, (unsigned)f->R.rdx);
+      break;
+    }
+    case SYS_OPEN: {
+      f->R.rax = open((const char *)f->R.rdi);
+      break;
+    }
+    case SYS_SEEK: {
       // 인자들 저장하고 함수 호출(인자2개)
       int fd = (int)f->R.rdi;
       unsigned position = (unsigned)f->R.rsi;
       seek(fd, position);
       break;
-    case SYS_EXEC:
+    }
+    case SYS_EXEC: {
       // todo: implement
-    case SYS_TELL:
+      break;
+    }
+    case SYS_TELL: {
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
       f->R.rax = tell(fd);  // 반환값 rax에 저장
       break;
-    default:
+    }
+    default: {
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
       thread_exit();
+      break;
+    }
   }
 }
 
@@ -146,49 +168,68 @@ int write(int fd, const void *buffer, unsigned size) {
   // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
   // unsigned bytes_written = file_write(file, buffer, max_write_size);
   // return bytes_written;
+
+  // 파일 쓰기 기능이 구현되지 않았으므로 임시로 -1 반환
+  return -1;
 }
 
 int read(int fd, void *buffer, unsigned size) {
-  // 1) 유효성 검사 : 파일 끝까지 읽은 경우가 아니라면 -1 반환
-  if ((buffer == NULL) || (size == 0)) return -1;
+  int bytes_read = 0;
 
-  if (fd < 0) return -1;
-
-  /* 버퍼가 유효한 메모리 영역에 있는지 확인
-   * userprog/memory.h의 check_user_vaddr() 사용
-   * buffer(시작 주소)가 사용자 가상 주소 공간에 속하는지 확인
-   * buffer + size - 1(끝 주소)이 사용자 가상 주소 공간에 속하는지 확인
-   */
-  if ((!is_user_vaddr(buffer)) || (!is_user_vaddr(buffer + size - 1))) {
-    return -1;
+  // 버퍼 유효성 검사 (모든 fd에 대해 먼저 수행)
+  if (buffer == NULL) return -1;
+  if (!is_user_vaddr(buffer) || !is_user_vaddr(buffer + size - 1)) {
+    // 잘못된 포인터 접근 시 프로세스 종료
+    struct thread *curr = thread_current();
+#ifdef USERPROG
+    curr->exit_status = -1;
+#endif
+    thread_exit();
   }
 
-  // 2) fd 번호에 맞춰 로직 수행
-  switch (fd) {
-    case 0:
-      // stdin에서 읽기(표준 입력)
-      for (unsigned i = 0; i < size; i++) {
-        // 1바이트씩 읽어서 버퍼에 저장
-        *((uint8_t *)buffer + i) = (uint8_t)input_getc();
-      }
-      break;
-    // 👇👇👇 데이터를 쓰는 경우 : 읽는 경우에 해당하지 않으므로 -1 반환
-    case 1:
-      return -1;  // 표준 출력
-      break;
-    case 2:
-      return -1;  // 표준 에러
-      break;
-    // 👆👆👆
-    default:
-      // fd가 2보다 큰 경우 : 일반 파일에서 읽기
-      int bytes_read = 0;
+  // size가 0인 경우는 정상적인 요청으로 0 반환
+  if (size == 0) return 0;
 
-      // fd를 이용해서 파일 구조체 획득
+  if (fd == 0) {
+    // stdin에서 읽기(표준 입력)
+    for (unsigned i = 0; i < size; i++) {
+      *((uint8_t *)buffer + i) = (uint8_t)input_getc();
+    }
+    bytes_read = size;
+  } else {
+    // fd 유효성 검사 강화
+    if (fd < 0 || fd >= 128) return -1;  // 음수이거나 너무 큰 fd
+    if (fd == 1 || fd == 2) return -1;   // stdout, stderr은 읽기 불가
 
-      // 파일 구조체를 이용해서 파일 읽기 : file_read()
+    // TODO: 파일 디스크립터 찾기 및 파일 읽기
+    // struct file_descriptor *curr_fd = find_file_descriptor(fd);
+    // if (curr_fd == NULL) return -1;
+    // bytes_read = file_read(curr_fd->file, buffer, size);
 
-      // 읽은 바이트 수 반환
-      return bytes_read;
+    // 임시로 -1 반환 (파일 시스템 구현 필요)
+    bytes_read = -1;
   }
+
+  return bytes_read;
+}
+
+int open(const char *file_name) {
+  // 파일명 유효성 검사
+  if (file_name == NULL) return -1;
+  if (!is_user_vaddr(file_name)) return -1;
+
+  // 파일시스템을 통해 파일 열기
+  struct file *file = filesys_open(file_name);
+  if (file == NULL) return -1;
+
+  // 간단한 fd 할당 (2부터 시작, stdin=0, stdout=1)
+  // TODO: 나중에 fdt 관리로 개선
+  static int next_fd = 2;
+  int fd = next_fd++;
+
+  // 현재는 fdt가 없으므로 파일을 바로 닫음 (임시)
+  // TODO: fdt 구현 후 파일 저장
+  file_close(file);
+
+  return fd;  // 임시로 fd만 반환
 }

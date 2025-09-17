@@ -23,7 +23,12 @@
         "off_t.h": "c",
         "syscall-nr.h": "c",
         "syscall.h": "c",
-        "tss.h": "c"
+        "tss.h": "c",
+        "main.h": "c",
+        "lib.h": "c",
+        "stdbool.h": "c",
+        "filesys.h": "c",
+        "init.h": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",
