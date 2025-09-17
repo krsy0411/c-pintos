@@ -48,6 +48,7 @@ struct init_args {
   struct thread *parent;        // ★ 부모 스레드 포인터
 };
 
+// 자식리스트 순회 후 특정자식 찾기
 static struct child* child_find (struct thread *parent, tid_t tid) {
   struct list_elem *e;
   for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
@@ -57,6 +58,7 @@ static struct child* child_find (struct thread *parent, tid_t tid) {
   return NULL;
 }
 
+// 새로운 자식을 초기화하고 리스트에 추가
 static struct child* child_add (struct thread *parent, tid_t tid) {
   struct child *c = malloc(sizeof *c);
   if (!c) return NULL;
@@ -69,12 +71,14 @@ static struct child* child_add (struct thread *parent, tid_t tid) {
   return c;
 }
 
+// 자식 제거 후 메모리 해제
 static void child_remove_and_free (struct thread *parent, struct child *c) {
   if (!c) return;
   list_remove(&c->elem);
   free(c);
 }
 
+// add 호출
 void process_register_child (struct thread *parent, tid_t child_tid) {
   if (!parent) return;
   child_add(parent, child_tid);
@@ -446,13 +450,15 @@ tokenize_cmdline(char *buf, char **argv, int max_args)
 	char *saveptr = NULL;
 	int argc = 0;
 
+	// 공백 또는 \t탭 기준으로 문자열 자르기
 	for (char *tok = strtok_r(buf, " \t", &saveptr);
 		 tok != NULL && argc < max_args;
 		 tok = strtok_r(NULL, " \t", &saveptr))
 	{
-		argv[argc++] = tok;
+		argv[argc++] = tok; // 배열에 저장
 	}
 
+	// 마지막에 널 추가
 	if (argc < max_args)
 		argv[argc] = NULL;
 	return argc;
@@ -464,7 +470,7 @@ static bool push_args(struct intr_frame *if_, char **argv, int argc)
 	uint8_t *rsp = (uint8_t*) (uintptr_t) if_->rsp;
 	char *user_addr[128];
 
-	// 주소값배열 만들기
+	// 인자 문자열 푸시
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		size_t len = strlen(argv[i]) + 1;
@@ -485,18 +491,26 @@ static bool push_args(struct intr_frame *if_, char **argv, int argc)
 	rsp -= sizeof(char *);
 	*(char **)rsp = NULL;
 
-	// 스택쌓기
+	// 인자 주소 푸시
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		rsp -= sizeof(char *);
 		*(char **)rsp = user_addr[i];
 	}
 
+	// 스택에 인자 주소 푸시
 	char **argv_on_stack = (char**)rsp;
 
+	// 가짜반환주소
 	rsp -= sizeof(void*);
 	*(void**)rsp = 0;
     
+	// *(void**)rsp = 0; 아래랑 이거랑 똑같음
+	// void **dblptr;
+	// dblptr = (void**)rsp;
+	// *dblptr = 0;
+
+	// 레지스터에 argc, argv 시작 주소 설정
     if_ -> R.rdi = argc;
     if_ -> R.rsi = (uint64_t)argv_on_stack;
 	if_ -> rsp = rsp;

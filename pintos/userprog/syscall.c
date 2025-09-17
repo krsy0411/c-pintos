@@ -56,6 +56,8 @@ static int sys_write(int fd, const void *buf, unsigned len);
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
+	// rax에 시스템 콜 번호 저장
+	// 나머지 인자들은 rdi, rsi, rdx 등 순차적 저장해서 넘어옴
 	switch (f->R.rax) {
 		case SYS_EXIT: {
 			int status = (int)f->R.rdi;
@@ -70,6 +72,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			int fd = (int)f->R.rdi;
 			const void *buf = (const void*)f->R.rsi;
 			unsigned len = (unsigned)f->R.rdx;
+			// f->R.rax에 반환값 저장(바이트 수)
 			f->R.rax = (uint64_t)sys_write(fd, buf, len);
 			break;
 		}
@@ -83,7 +86,6 @@ static void sys_exit(int status) {
 	printf("%s: exit(%d)\n", cur->name, status);
 
 	process_on_exit(status);   // ★ 부모에게 종료/코드 알리기
-	process_exit();
 	thread_exit();
 }
 
