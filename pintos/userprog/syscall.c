@@ -66,11 +66,50 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       break;
     case SYS_READ:
 
+    case SYS_SEEK:
+      // 인자들 저장하고 함수 호출(인자2개)
+      int fd = (int)f->R.rdi;
+      unsigned position = (unsigned)f->R.rsi;
+      seek(fd, position);
+      break;
+    case SYS_EXEC:
+      // todo: implement
+    case SYS_TELL:
+      // 인자 저장하고 함수 호출(인자 1개)
+      int fd = (int)f->R.rdi;
+      f->R.rax = tell(fd);  // 반환값 rax에 저장
+      break;
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
       thread_exit();
   }
+}
+
+// process_get_file() 함수 구현하면 아래 함수들에서 사용 가능
+void seek(int fd, unsigned position) {
+  // 잘못된 fd인 경우 리턴
+  if (!fd || fd < 2 || fd >= 128) return;
+
+  // fdt에서 fd에 해당하는 파일 구조체 얻기
+  struct thread *curr = thread_current();
+  struct file *file = curr->fdt[fd];
+
+  if (file == NULL) return;
+
+  // file_seek() 함수 호출
+  file_seek(file, position);
+}
+
+unsigned tell(int fd) {
+  if (!fd || fd < 2 || fd >= 128) return -1;
+
+  struct thread *curr = thread_current();
+  struct file *file = curr->fdt[fd];
+
+  if (file == NULL) return -1;
+
+  return file_tell(file);
 }
 
 int write(int fd, const void *buffer, unsigned size) {

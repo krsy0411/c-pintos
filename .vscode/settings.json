@@ -20,23 +20,14 @@
         "random.h": "c",
         "flags.h": "c",
         "file.h": "c",
-        "exception": "c",
-        "memory_resource": "c",
-        "iosfwd": "c",
-        "new": "c",
-        "ostream": "c",
-        "streambuf": "c",
-        "*.inc": "c",
-        "vm.h": "c",
-        "syn-write.h": "c",
-        "atomic": "c",
-        "cstdint": "c",
         "off_t.h": "c",
+        "syscall-nr.h": "c",
         "syscall.h": "c",
-        "init.h": "c"
+        "tss.h": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",
     "C_Cpp.clang_format_sortIncludes": true,
-    "C_Cpp.clang_format_style": "file"
+    "C_Cpp.clang_format_style": "file",
+    "files.eol": "\n"
 }
