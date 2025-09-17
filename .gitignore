@@ -36,3 +36,4 @@ core
 .idea
 .clang-format
 CMakeLists.txt
+/pintos/test
