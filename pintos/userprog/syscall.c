@@ -84,6 +84,10 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_REMOVE:
     case SYS_EXEC:
     // todo: implement
+    case SYS_FILESIZE: {
+      f->R.rax = filesize((int)f->R.rdi);
+      break;
+    }
     case SYS_TELL: {
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
@@ -321,4 +325,15 @@ void exit(int status) {
   curr->exit_status = status;
 #endif
   thread_exit();
+}
+
+int filesize(int fd) {
+  if (!fd || fd < 2 || fd >= 128) return -1;
+
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
+
+  if (file == NULL) return -1;
+
+  return file_length(file);
 }
