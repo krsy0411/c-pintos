@@ -15,6 +15,7 @@
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 int write(int fd, const void *buffer, unsigned size);
+int read(int fd, void *buffer, unsigned size);
 
 /* System call.
  *
@@ -63,6 +64,8 @@ void syscall_handler(struct intr_frame *f UNUSED) {
       f->R.rax =
           write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned)f->R.rdx);
       break;
+    case SYS_READ:
+
     default:
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
@@ -104,4 +107,49 @@ int write(int fd, const void *buffer, unsigned size) {
   // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
   // unsigned bytes_written = file_write(file, buffer, max_write_size);
   // return bytes_written;
+}
+
+int read(int fd, void *buffer, unsigned size) {
+  // 1) 유효성 검사 : 파일 끝까지 읽은 경우가 아니라면 -1 반환
+  if ((buffer == NULL) || (size == 0)) return -1;
+
+  if (fd < 0) return -1;
+
+  /* 버퍼가 유효한 메모리 영역에 있는지 확인
+   * userprog/memory.h의 check_user_vaddr() 사용
+   * buffer(시작 주소)가 사용자 가상 주소 공간에 속하는지 확인
+   * buffer + size - 1(끝 주소)이 사용자 가상 주소 공간에 속하는지 확인
+   */
+  if ((!is_user_vaddr(buffer)) || (!is_user_vaddr(buffer + size - 1))) {
+    return -1;
+  }
+
+  // 2) fd 번호에 맞춰 로직 수행
+  switch (fd) {
+    case 0:
+      // stdin에서 읽기(표준 입력)
+      for (unsigned i = 0; i < size; i++) {
+        // 1바이트씩 읽어서 버퍼에 저장
+        *((uint8_t *)buffer + i) = (uint8_t)input_getc();
+      }
+      break;
+    // 👇👇👇 데이터를 쓰는 경우 : 읽는 경우에 해당하지 않으므로 -1 반환
+    case 1:
+      return -1;  // 표준 출력
+      break;
+    case 2:
+      return -1;  // 표준 에러
+      break;
+    // 👆👆👆
+    default:
+      // fd가 2보다 큰 경우 : 일반 파일에서 읽기
+      int bytes_read = 0;
+
+      // fd를 이용해서 파일 구조체 획득
+
+      // 파일 구조체를 이용해서 파일 읽기 : file_read()
+
+      // 읽은 바이트 수 반환
+      return bytes_read;
+  }
 }
