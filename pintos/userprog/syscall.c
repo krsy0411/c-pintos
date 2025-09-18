@@ -12,10 +12,15 @@
 #include "threads/interrupt.h"
 #include "threads/loader.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/gdt.h"
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
 int write(int fd, const void* buffer, unsigned size);
+int read(int fd, void* buffer, unsigned size);
+int open(const char* file_name);
 int open(const char* file);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
@@ -57,283 +62,309 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       (int)f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
-    case SYS_HALT:
+    case SYS_HALT: {
       power_off();
       break;
-    case SYS_EXIT: {
-      int status = (int)f->R.rdi;
-      exit(status);
-      break;
+      case SYS_EXIT: {
+        int status = (int)f->R.rdi;
+        exit(status);
+        break;
+      }
+      case SYS_WRITE:
+        f->R.rax =
+            write((int)f->R.rdi, (const void*)f->R.rsi, (unsigned)f->R.rdx);
+        break;
+      case SYS_SEEK: {
+        // 인자들 저장하고 함수 호출(인자2개)
+        int fd = (int)f->R.rdi;
+        unsigned position = (unsigned)f->R.rsi;
+        seek(fd, position);
+        break;
+      }
+      /* 파일 생성 */
+      case SYS_CREATE:
+        f->R.rax = create((const char*)f->R.rdi, (unsigned)f->R.rsi);
+        break;
+      /* 파일 삭제 */
+      case SYS_REMOVE:
+      case SYS_EXEC:
+      // todo: implement
+      case SYS_FILESIZE: {
+        f->R.rax = filesize((int)f->R.rdi);
+        break;
+      }
+      case SYS_TELL: {
+        // 인자 저장하고 함수 호출(인자 1개)
+        int fd = (int)f->R.rdi;
+        f->R.rax = tell(fd);  // 반환값 rax에 저장
+        break;
+      }
+      case SYS_OPEN:
+        f->R.rax = open((const char*)f->R.rdi);
+        break;
+      default:
+        printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
+               syscall_number);
+        thread_exit();
     }
-    case SYS_WRITE:
-      f->R.rax =
-          write((int)f->R.rdi, (const void*)f->R.rsi, (unsigned)f->R.rdx);
-      break;
-    case SYS_SEEK: {
-      // 인자들 저장하고 함수 호출(인자2개)
-      int fd = (int)f->R.rdi;
-      unsigned position = (unsigned)f->R.rsi;
-      seek(fd, position);
-      break;
-    }
-    /* 파일 생성 */
-    case SYS_CREATE:
-      f->R.rax = create((const char*)f->R.rdi, (unsigned)f->R.rsi);
-      break;
-    /* 파일 삭제 */
-    case SYS_REMOVE:
-    case SYS_EXEC:
-    // todo: implement
-    case SYS_FILESIZE: {
-      f->R.rax = filesize((int)f->R.rdi);
-      break;
-    }
-    case SYS_TELL: {
-      // 인자 저장하고 함수 호출(인자 1개)
-      int fd = (int)f->R.rdi;
-      f->R.rax = tell(fd);  // 반환값 rax에 저장
-      break;
-    }
-    case SYS_OPEN:
-      f->R.rax = open((const char*)f->R.rdi);
-      break;
-    default:
-      printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
-             syscall_number);
-      thread_exit();
-  }
-}
-
-/* 파일 생성 함수 */
-bool create(const char* file, unsigned initial_size) {
-  /* 파일이 없으면 프로세스 종료 */
-  if (file == NULL) {
-    exit(-1);  // false 리턴 금지
   }
 
-  char fname[NAME_MAX + 1];
-  size_t fname_len = 0;
-
-  for (;;) {
-    const char* u = file + fname_len;
-
-    /* 유저 영역 검사 */
-    if (!is_user_vaddr(u)) {
+  /* 파일 생성 함수 */
+  bool create(const char* file, unsigned initial_size) {
+    /* 파일이 없으면 프로세스 종료 */
+    if (file == NULL) {
       exit(-1);  // false 리턴 금지
     }
 
-    /* 안전하게 읽기 */
-    uint8_t* k = pml4_get_page(thread_current()->pml4, u);
-    if (k == NULL) {
-      exit(-1);  // false 리턴 금지
+    char fname[NAME_MAX + 1];
+    size_t fname_len = 0;
+
+    for (;;) {
+      const char* u = file + fname_len;
+
+      /* 유저 영역 검사 */
+      if (!is_user_vaddr(u)) {
+        exit(-1);  // false 리턴 금지
+      }
+
+      /* 안전하게 읽기 */
+      uint8_t* k = pml4_get_page(thread_current()->pml4, u);
+      if (k == NULL) {
+        exit(-1);  // false 리턴 금지
+      }
+
+      uint8_t b = *k;
+      if (b == '\0') break;
+
+      if (fname_len >= NAME_MAX) {
+        return false;  // create-long → false
+      }
+
+      fname[fname_len++] = (char)b;
     }
 
-    uint8_t b = *k;
-    if (b == '\0') break;
+    fname[fname_len] = '\0';
 
-    if (fname_len >= NAME_MAX) {
-      return false;  // create-long → false
+    if (fname_len == 0) {
+      return false;  // 빈 문자열은 실패
     }
 
-    fname[fname_len++] = (char)b;
+    bool ok;
+
+    ok = filesys_create(fname, initial_size);
+
+    return ok;
   }
 
-  fname[fname_len] = '\0';
-
-  if (fname_len == 0) {
-    return false;  // 빈 문자열은 실패
-  }
-
-  bool ok;
-
-  ok = filesys_create(fname, initial_size);
-
-  return ok;
-}
-
-bool remove(const char* file) {
-  if (file == NULL) {
-    exit(-1);
-  }
-
-  char fname[NAME_MAX + 1];
-  size_t fname_len = 0;
-
-  for (;;) {
-    const char* u = file + fname_len;
-
-    if (!is_user_vaddr(u)) {
+  bool remove(const char* file) {
+    if (file == NULL) {
       exit(-1);
     }
 
-    uint8_t* k = pml4_get_page(thread_current()->pml4, u);
-    if (k == NULL) {
-      exit(-1);
+    char fname[NAME_MAX + 1];
+    size_t fname_len = 0;
+
+    for (;;) {
+      const char* u = file + fname_len;
+
+      if (!is_user_vaddr(u)) {
+        exit(-1);
+      }
+
+      uint8_t* k = pml4_get_page(thread_current()->pml4, u);
+      if (k == NULL) {
+        exit(-1);
+      }
+
+      uint8_t b = *k;
+      if (b == '\0') break;
+
+      if (fname_len >= NAME_MAX) {
+        return false;
+      }
+
+      fname[fname_len++] = (char)b;
     }
 
-    uint8_t b = *k;
-    if (b == '\0') break;
+    fname[fname_len] = '\0';
 
-    if (fname_len >= NAME_MAX) {
+    if (fname_len == 0) {
       return false;
     }
 
-    fname[fname_len++] = (char)b;
+    bool ok = filesys_remove(fname);
+    return ok;
   }
 
-  fname[fname_len] = '\0';
+  // process_get_file() 함수 구현하면 아래 함수들에서 사용 가능
+  void seek(int fd, unsigned position) {
+    // 잘못된 fd인 경우 리턴
+    if (!fd || fd < 2 || fd >= 128) return;
 
-  if (fname_len == 0) {
-    return false;
+    // fdt에서 fd에 해당하는 파일 구조체 얻기
+    struct thread* curr = thread_current();
+    struct file* file = curr->fdt[fd];
+
+    if (file == NULL) return;
+
+    // file_seek() 함수 호출
+    file_seek(file, position);
   }
 
-  bool ok = filesys_remove(fname);
-  return ok;
-}
+  unsigned tell(int fd) {
+    if (!fd || fd < 2 || fd >= 128) return -1;
 
-// process_get_file() 함수 구현하면 아래 함수들에서 사용 가능
-void seek(int fd, unsigned position) {
-  // 잘못된 fd인 경우 리턴
-  if (!fd || fd < 2 || fd >= 128) return;
+    struct thread* curr = thread_current();
+    struct file* file = curr->fdt[fd];
 
-  // fdt에서 fd에 해당하는 파일 구조체 얻기
-  struct thread* curr = thread_current();
-  struct file* file = curr->fdt[fd];
+    if (file == NULL) return -1;
 
-  if (file == NULL) return;
-
-  // file_seek() 함수 호출
-  file_seek(file, position);
-}
-
-unsigned tell(int fd) {
-  if (!fd || fd < 2 || fd >= 128) return -1;
-
-  struct thread* curr = thread_current();
-  struct file* file = curr->fdt[fd];
-
-  if (file == NULL) return -1;
-
-  return file_tell(file);
-}
-
-int write(int fd, const void* buffer, unsigned size) {
-  /* fd가 1이면 콘솔에 출력 : putbuf() 함수를 1번만 호출해서 전체 버퍼를 출력 */
-  if (fd == 1) {
-    if ((size == 0) || (buffer == NULL)) return 0;  // 잘못된 경우 0 반환
-
-    putbuf(buffer, size);
-    return size;  // 출력한 바이트 수 반환
+    return file_tell(file);
   }
 
-  /* ⭐️⭐️⭐️ 파일 쓰기 : 파일 크기 확장 불가 ⭐️⭐️⭐️ */
-  // struct file *file =
-  //     process_get_file(fd); /* 파일 디스크립터로부터 파일 구조체 얻기 */
-  // if (file == NULL || buffer == NULL || size == 0) return 0;
+  int write(int fd, const void* buffer, unsigned size) {
+    /* fd가 1이면 콘솔에 출력 : putbuf() 함수를 1번만 호출해서 전체 버퍼를 출력
+     */
+    if (fd == 1) {
+      if ((size == 0) || (buffer == NULL)) return 0;  // 잘못된 경우 0 반환
 
-  // // 파일 끝까지 최대한 많이 쓰기
-  // off_t length = file_length(file);  // 파일 전체 크기
-  // off_t file_pos = file_tell(file);  // 현재 파일 포인터 위치
-  // unsigned max_write_size = 0;       // 실제로 쓸 수 있는 최대 바이트 수
+      putbuf(buffer, size);
+      return size;  // 출력한 바이트 수 반환
+    }
 
-  // // 파일 끝까지 쓸 수 있는 바이트 수 계산
-  // if (file_pos < length) {
-  //   // 파일 포인터가 파일 끝보다 앞에 있는 경우 : 남는 공간만큼 사용 가능
-  //   max_write_size = length - file_pos;
+    /* ⭐️⭐️⭐️ 파일 쓰기 : 파일 크기 확장 불가 ⭐️⭐️⭐️ */
+    // struct file *file =
+    //     process_get_file(fd); /* 파일 디스크립터로부터 파일 구조체 얻기 */
+    // if (file == NULL || buffer == NULL || size == 0) return 0;
 
-  //   if (size < max_write_size)
-  //     // 남는 공간보다 요청 크기가 더 작으면 : 요청 크기만큼만 사용
-  //     max_write_size = size;
-  // } else {
-  //   max_write_size = 0;
-  // }
+    // // 파일 끝까지 최대한 많이 쓰기
+    // off_t length = file_length(file);  // 파일 전체 크기
+    // off_t file_pos = file_tell(file);  // 현재 파일 포인터 위치
+    // unsigned max_write_size = 0;       // 실제로 쓸 수 있는 최대 바이트 수
 
-  // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
-  // unsigned bytes_written = file_write(file, buffer, max_write_size);
-  // return bytes_written;
-}
+    // // 파일 끝까지 쓸 수 있는 바이트 수 계산
+    // if (file_pos < length) {
+    //   // 파일 포인터가 파일 끝보다 앞에 있는 경우 : 남는 공간만큼 사용 가능
+    //   max_write_size = length - file_pos;
 
-int open(const char* file) {
-  struct thread* curr = thread_current();
+    //   if (size < max_write_size)
+    //     // 남는 공간보다 요청 크기가 더 작으면 : 요청 크기만큼만 사용
+    //     max_write_size = size;
+    // } else {
+    //   max_write_size = 0;
+    // }
 
-  // 파일 유효성 검사
-  // 1. 기본 포인터 검증
-  if (!file) {
-    exit(-1);
+    // // 실제 쓰기 및 반환 : max_write_size만큼만 사용
+    // unsigned bytes_written = file_write(file, buffer, max_write_size);
+    // return bytes_written;
+
+    // 파일 쓰기 기능이 구현되지 않았으므로 임시로 -1 반환
+    return -1;
   }
-  // 2. 사용자 영역 확인
-  if (!is_user_vaddr(file)) {
-    exit(-1);
+
+  int read(int fd, void* buffer, unsigned size) {
+    int bytes_read = 0;
+
+    if (fd == 0) {
+      bytes_read = input_getc();
+    } else {
+      // 잘못된 fd인 경우 리턴
+      if (!fd || fd < 2 || fd >= 128) return -1;
+
+      // fdt에서 fd에 해당하는 파일 구조체 얻기
+      struct thread* curr = thread_current();
+      struct file* file = curr->fdt[fd];
+
+      if (file == NULL) return -1;
+
+      // file_read() 함수 호출
+      bytes_read = file_read(file, buffer, size);
+    }
+
+    return bytes_read;
   }
 
-  // 사용자 문자열을 커널 공간으로 복사
-  char kernel_file[256];
+  int open(const char* file) {
+    struct thread* curr = thread_current();
 
-  int i = 0;
-  while (i < 255) {
-    // 각 바이트마다 주소 유효성 검사
-
-    if (!is_user_vaddr((void*)(file + i))) {
+    // 파일 유효성 검사
+    // 1. 기본 포인터 검증
+    if (!file) {
       exit(-1);
     }
-    // pml4_get_page로 매핑 확인
-    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
-      exit(-1);
-    }
-    if (!is_user_vaddr((void*)(file + i))) {
-      exit(-1);
-    }
-    // pml4_get_page로 매핑 확인
-    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+    // 2. 사용자 영역 확인
+    if (!is_user_vaddr(file)) {
       exit(-1);
     }
 
-    // 안전하게 복사
-    kernel_file[i] = file[i];
+    // 사용자 문자열을 커널 공간으로 복사
+    char kernel_file[256];
 
-    // 문자열 끝 확인
-    if (file[i] == '\0') {
-      break;
+    int i = 0;
+    while (i < 255) {
+      // 각 바이트마다 주소 유효성 검사
+
+      if (!is_user_vaddr((void*)(file + i))) {
+        exit(-1);
+      }
+      // pml4_get_page로 매핑 확인
+      if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+        exit(-1);
+      }
+      if (!is_user_vaddr((void*)(file + i))) {
+        exit(-1);
+      }
+      // pml4_get_page로 매핑 확인
+      if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+        exit(-1);
+      }
+
+      // 안전하게 복사
+      kernel_file[i] = file[i];
+
+      // 문자열 끝 확인
+      if (file[i] == '\0') {
+        break;
+      }
+      i++;
     }
-    i++;
-  }
 
-  // 파일 열기
-  struct file* f = filesys_open(kernel_file);
-  if (!f) {
-    return -1;  // 파일 열기 실패
-  }
-
-  // 파일 디스크립터 할당
-  int fd = 2;
-  // fdt의 끝까지 탐색하는 while
-  while (fd < FDT_SIZE) {
-    if (curr->fdt[fd] == NULL) {
-      curr->fdt[fd] = f;
-      return fd;
+    // 파일 열기
+    struct file* f = filesys_open(kernel_file);
+    if (!f) {
+      return -1;  // 파일 열기 실패
     }
-    fd++;
+
+    // 파일 디스크립터 할당
+    int fd = 2;
+    // fdt의 끝까지 탐색하는 while
+    while (fd < FDT_SIZE) {
+      if (curr->fdt[fd] == NULL) {
+        curr->fdt[fd] = f;
+        return fd;
+      }
+      fd++;
+    }
+
+    file_close(f);
+    return -1;
   }
 
-  file_close(f);
-  return -1;
-}
-
-void exit(int status) {
-  struct thread* curr = thread_current();
+  void exit(int status) {
+    struct thread* curr = thread_current();
 #ifdef USERPROG
-  curr->exit_status = status;
+    curr->exit_status = status;
 #endif
-  thread_exit();
-}
+    thread_exit();
+  }
 
-int filesize(int fd) {
-  if (!fd || fd < 2 || fd >= 128) return -1;
+  int filesize(int fd) {
+    if (!fd || fd < 2 || fd >= 128) return -1;
 
-  struct thread* curr = thread_current();
-  struct file* file = curr->fdt[fd];
+    struct thread* curr = thread_current();
+    struct file* file = curr->fdt[fd];
 
-  if (file == NULL) return -1;
+    if (file == NULL) return -1;
 
-  return file_length(file);
-}
+    return file_length(file);
+  }
