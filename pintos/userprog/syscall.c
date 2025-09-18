@@ -32,6 +32,7 @@ int read(int fd, void* buffer, unsigned size);
 int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
+void close(int fd);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -93,6 +94,10 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
+      break;
+    }
+    case SYS_CLOSE: {
+      close((int)f->R.rax);
       break;
     }
     default: {
