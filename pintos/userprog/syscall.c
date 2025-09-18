@@ -97,7 +97,7 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     }
     case SYS_CLOSE: {
-      close((int)f->R.rax);
+      close((int)f->R.rdi);
       break;
     }
     default: {
