@@ -112,6 +112,7 @@ void exit(int status) {
   struct thread* curr = thread_current();
 #ifdef USERPROG
   curr->exit_status = status;
+  printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 #endif
   thread_exit();
 }
@@ -252,7 +253,13 @@ int write(int fd, const void* buffer, unsigned size) {
   int bytes_written = file_write(file, buffer, size);
   return bytes_written;
 }
-
+/* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
+   성공하면 true, 실패하면 false를 반환한다. */
+bool copyin(void* dst, const void* usrc, size_t size) {
+  if (!is_user_vaddr(usrc) || !pml4_get_page(thread_current()->pml4, usrc)) {
+    return false;
+  }
+}
 int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
@@ -379,4 +386,3 @@ void close(int fd) {
   // fdt에서 제거
   curr->fdt[fd] = NULL;
 }
-
