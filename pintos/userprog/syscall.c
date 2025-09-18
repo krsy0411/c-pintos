@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "filesys/directory.h"
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
@@ -12,14 +13,18 @@
 #include "threads/loader.h"
 #include "threads/thread.h"
 #include "userprog/gdt.h"
-
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
 int write(int fd, const void* buffer, unsigned size);
 int open(const char* file);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
+
+bool create(const char* file, unsigned initial_size);
+bool remove(const char* file);
+
 void exit(int status);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -71,8 +76,18 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       seek(fd, position);
       break;
     }
+    /* 파일 생성 */
+    case SYS_CREATE:
+      f->R.rax = create((const char*)f->R.rdi, (unsigned)f->R.rsi);
+      break;
+    /* 파일 삭제 */
+    case SYS_REMOVE:
     case SYS_EXEC:
     // todo: implement
+    case SYS_FILESIZE: {
+      f->R.rax = filesize((int)f->R.rdi);
+      break;
+    }
     case SYS_TELL: {
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
@@ -87,6 +102,93 @@ void syscall_handler(struct intr_frame* f UNUSED) {
              syscall_number);
       thread_exit();
   }
+}
+
+/* 파일 생성 함수 */
+bool create(const char* file, unsigned initial_size) {
+  /* 파일이 없으면 프로세스 종료 */
+  if (file == NULL) {
+    exit(-1); // false 리턴 금지
+  }
+
+  char fname[NAME_MAX + 1];
+  size_t fname_len = 0;
+
+  for (;;) {
+    const char* u = file + fname_len;
+
+    /* 유저 영역 검사 */
+    if (!is_user_vaddr(u)) {
+      exit(-1); // false 리턴 금지
+    }
+
+    /* 안전하게 읽기 */
+    uint8_t* k = pml4_get_page(thread_current()->pml4, u);
+    if (k == NULL) {
+      exit(-1); // false 리턴 금지
+    }
+
+    uint8_t b = *k;
+    if (b == '\0') break;
+
+    if (fname_len >= NAME_MAX) {
+      return false; // create-long → false
+    }
+
+    fname[fname_len++] = (char)b;
+  }
+
+  fname[fname_len] = '\0';
+
+  if (fname_len == 0) {
+    return false; // 빈 문자열은 실패
+  }
+
+  bool ok;
+
+  ok = filesys_create(fname, initial_size);
+
+  return ok;
+}
+
+bool remove(const char* file) {
+  if (file == NULL) {
+    exit(-1);
+  }
+
+  char fname[NAME_MAX + 1];
+  size_t fname_len = 0;
+
+  for (;;) {
+    const char* u = file + fname_len;
+
+    if (!is_user_vaddr(u)) {
+      exit(-1);
+    }
+
+    uint8_t* k = pml4_get_page(thread_current()->pml4, u);
+    if (k == NULL) {
+      exit(-1);
+    }
+
+    uint8_t b = *k;
+    if (b == '\0') break;
+
+    if (fname_len >= NAME_MAX) {
+      return false;
+    }
+
+    fname[fname_len++] = (char)b;
+  }
+
+  fname[fname_len] = '\0';
+
+  if (fname_len == 0) {
+    return false;
+  }
+
+  bool ok = filesys_remove(fname);
+  return ok;
 }
 
 // process_get_file() 함수 구현하면 아래 함수들에서 사용 가능
@@ -170,6 +272,14 @@ int open(const char* file) {
   int i = 0;
   while (i < 255) {
     // 각 바이트마다 주소 유효성 검사
+
+    if (!is_user_vaddr((void*)(file + i))) {
+      exit(-1);
+    }
+    // pml4_get_page로 매핑 확인
+    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
+      exit(-1);
+    }
     if (!is_user_vaddr((void*)(file + i))) {
       exit(-1);
     }
@@ -216,3 +326,36 @@ void exit(int status) {
 #endif
   thread_exit();
 }
+
+int filesize(int fd) {
+  if (!fd || fd < 2 || fd >= 128) return -1;
+
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
+
+  if (file == NULL) return -1;
+
+  return file_length(file);
+}
+
+void close(int fd) {
+  // fd 유효성 검사 - stdin(0), stdout(1)은 닫으면 안됨
+  if (fd < 2 || fd >= FDT_SIZE) {
+    return;
+  }
+
+  // 파일 구조체 가져오기
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
+
+  if (file == NULL) {
+    return;
+  }
+
+  // 실제 파일 닫기
+  file_close(file);
+
+  // fdt에서 제거
+  curr->fdt[fd] = NULL;
+}
+
