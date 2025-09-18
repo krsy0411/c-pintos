@@ -32,6 +32,7 @@ int read(int fd, void* buffer, unsigned size);
 int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
+void close(int fd);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -93,6 +94,10 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
+      break;
+    }
+    case SYS_CLOSE: {
+      close((int)f->R.rdi);
       break;
     }
     default: {
@@ -353,3 +358,25 @@ int filesize(int fd) {
 
   return file_length(file);
 }
+
+void close(int fd) {
+  // fd 유효성 검사 - stdin(0), stdout(1)은 닫으면 안됨
+  if (fd < 2 || fd >= FDT_SIZE) {
+    return;
+  }
+
+  // 파일 구조체 가져오기
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
+
+  if (file == NULL) {
+    return;
+  }
+
+  // 실제 파일 닫기
+  file_close(file);
+
+  // fdt에서 제거
+  curr->fdt[fd] = NULL;
+}
+
