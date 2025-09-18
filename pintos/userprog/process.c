@@ -332,8 +332,6 @@ void process_exit(void) {
     palloc_free_page(curr->fdt);
     curr->fdt = NULL;
   }
-
-  printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 #endif
   process_cleanup();
 }
