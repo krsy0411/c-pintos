@@ -40,7 +40,7 @@ void exit(int status);
 
 void syscall_init(void) {
   write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 | ((uint64_t)SEL_KCSEG)
-                                                               << 32);
+                      << 32);
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
 
   /* The interrupt service rountine should not serve any interrupts
@@ -54,7 +54,7 @@ void syscall_init(void) {
 void syscall_handler(struct intr_frame* f UNUSED) {
   /* 시스템 콜 번호에 따라 적절한 핸들러 호출 */
   int syscall_number =
-      (int)f->R.rax;  // rax 레지스터에 시스템콜 번호가 저장되어 있음
+      (int)f->R.rax; // rax 레지스터에 시스템콜 번호가 저장되어 있음
 
   switch (syscall_number) {
     case SYS_HALT:
@@ -91,7 +91,7 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_TELL: {
       // 인자 저장하고 함수 호출(인자 1개)
       int fd = (int)f->R.rdi;
-      f->R.rax = tell(fd);  // 반환값 rax에 저장
+      f->R.rax = tell(fd); // 반환값 rax에 저장
       break;
     }
     case SYS_OPEN:
@@ -108,7 +108,7 @@ void syscall_handler(struct intr_frame* f UNUSED) {
 bool create(const char* file, unsigned initial_size) {
   /* 파일이 없으면 프로세스 종료 */
   if (file == NULL) {
-    exit(-1);  // false 리턴 금지
+    exit(-1); // false 리턴 금지
   }
 
   char fname[NAME_MAX + 1];
@@ -119,20 +119,20 @@ bool create(const char* file, unsigned initial_size) {
 
     /* 유저 영역 검사 */
     if (!is_user_vaddr(u)) {
-      exit(-1);  // false 리턴 금지
+      exit(-1); // false 리턴 금지
     }
 
     /* 안전하게 읽기 */
     uint8_t* k = pml4_get_page(thread_current()->pml4, u);
     if (k == NULL) {
-      exit(-1);  // false 리턴 금지
+      exit(-1); // false 리턴 금지
     }
 
     uint8_t b = *k;
     if (b == '\0') break;
 
     if (fname_len >= NAME_MAX) {
-      return false;  // create-long → false
+      return false; // create-long → false
     }
 
     fname[fname_len++] = (char)b;
@@ -141,7 +141,7 @@ bool create(const char* file, unsigned initial_size) {
   fname[fname_len] = '\0';
 
   if (fname_len == 0) {
-    return false;  // 빈 문자열은 실패
+    return false; // 빈 문자열은 실패
   }
 
   bool ok;
@@ -220,10 +220,10 @@ unsigned tell(int fd) {
 int write(int fd, const void* buffer, unsigned size) {
   /* fd가 1이면 콘솔에 출력 : putbuf() 함수를 1번만 호출해서 전체 버퍼를 출력 */
   if (fd == 1) {
-    if ((size == 0) || (buffer == NULL)) return 0;  // 잘못된 경우 0 반환
+    if ((size == 0) || (buffer == NULL)) return 0; // 잘못된 경우 0 반환
 
     putbuf(buffer, size);
-    return size;  // 출력한 바이트 수 반환
+    return size; // 출력한 바이트 수 반환
   }
 
   /* ⭐️⭐️⭐️ 파일 쓰기 : 파일 크기 확장 불가 ⭐️⭐️⭐️ */
@@ -301,7 +301,7 @@ int open(const char* file) {
   // 파일 열기
   struct file* f = filesys_open(kernel_file);
   if (!f) {
-    return -1;  // 파일 열기 실패
+    return -1; // 파일 열기 실패
   }
 
   // 파일 디스크립터 할당
@@ -337,3 +337,25 @@ int filesize(int fd) {
 
   return file_length(file);
 }
+
+void close(int fd) {
+  // fd 유효성 검사 - stdin(0), stdout(1)은 닫으면 안됨
+  if (fd < 2 || fd >= FDT_SIZE) {
+    return;
+  }
+
+  // 파일 구조체 가져오기
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
+
+  if (file == NULL) {
+    return;
+  }
+
+  // 실제 파일 닫기
+  file_close(file);
+
+  // fdt에서 제거
+  curr->fdt[fd] = NULL;
+}
+
