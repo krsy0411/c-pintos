@@ -27,7 +27,14 @@
         "syscall-nr.h": "c",
         "syscall.h": "c",
         "tss.h": "c",
-        "cstdlib": "c"
+        "cstdlib": "c",
+        "exception": "c",
+        "memory_resource": "c",
+        "iosfwd": "c",
+        "new": "c",
+        "ostream": "c",
+        "streambuf": "c",
+        "*.inc": "c"
     },
     "editor.formatOnSave": true,
     "C_Cpp.clang_format_fallbackStyle": "Google",
