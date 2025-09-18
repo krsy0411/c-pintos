@@ -31,6 +31,7 @@ core
 
 # VSCode
 .vscode/
+!.vscode/settings.json
 
 # 98jh-shin
 .idea
@@ -39,3 +40,9 @@ CMakeLists.txt
 /pintos/.nuget/
 /pintos/.java/
 /pintos/.gitconfig
+
+# krsy0411
+**/userprog/.test_status
+**/threads/.test_status
+**/vm/.test_status
+**/filesys/.test_status
