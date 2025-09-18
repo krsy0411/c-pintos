@@ -252,6 +252,16 @@ int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
   if (fd == 0) {
+    // stdin에서 읽기 전에 버퍼 유효성 검사
+    for (unsigned i = 0; i < size; i++) {
+      if (!is_user_vaddr((uint8_t*)buffer + i)) {
+        exit(-1);
+      }
+      if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
+        exit(-1);
+      }
+    }
+
     // stdin에서 읽기
     for (unsigned i = 0; i < size; i++) {
       *((uint8_t*)buffer + i) = (uint8_t)input_getc();
