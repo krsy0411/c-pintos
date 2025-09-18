@@ -333,7 +333,7 @@ void process_exit(void) {
     curr->fdt = NULL;
   }
 
-  printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+  // printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 #endif
   process_cleanup();
 }
