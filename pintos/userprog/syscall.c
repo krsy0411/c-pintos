@@ -94,6 +94,11 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       f->R.rax = tell(fd);
       break;
     }
+    case SYS_EXEC: {
+      exec((const char*)f->R.rdi);
+      break;
+    }
+
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
       break;
@@ -119,7 +124,7 @@ void exit(int status) {
   struct thread* curr = thread_current();
 #ifdef USERPROG
   curr->exit_status = status;
-
+  printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 #endif
   thread_exit();
 }
@@ -262,11 +267,11 @@ int write(int fd, const void* buffer, unsigned size) {
 }
 /* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
    성공하면 true, 실패하면 false를 반환한다. */
-// bool copyin(void* dst, const void* usrc, size_t size) {
-//   if (!is_user_vaddr(usrc) || !pml4_get_page(thread_current()->pml4, usrc)) {
-//     return false;
-//   }
-// }
+bool copyin(void* dst, const void* usrc, size_t size) {
+  if (!is_user_vaddr(usrc) || !pml4_get_page(thread_current()->pml4, usrc)) {
+    return false;
+  }
+}
 int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
@@ -392,4 +397,36 @@ void close(int fd) {
 
   // fdt에서 제거
   curr->fdt[fd] = NULL;
+}
+
+// 반환값이 의미없긴 한데 introduction에 맞춰서 int로 설정
+int exec(const char* cmd_line) {
+  struct thread* curr = thread_current();
+
+  if (!cmd_line) {
+    exit(-1);
+  }
+  if (!is_user_vaddr(cmd_line)) {
+    exit(-1);
+  }
+
+  char kernel_file[256];
+  int i = 0;
+  while (i < 255) {
+    if (!is_user_vaddr((void*)(cmd_line + i))) {
+      exit(-1);
+    }
+    if (!pml4_get_page(curr->pml4, (void*)(cmd_line + i))) {
+      exit(-1);
+    }
+
+    kernel_file[i] = cmd_line[i];
+
+    if (cmd_line[i] == '\0') {
+      break;
+    }
+    i++;
+  }
+
+  process_exec(kernel_file);
 }
