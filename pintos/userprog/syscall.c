@@ -392,8 +392,8 @@ void close(int fd) {
   curr->fdt[fd] = NULL;
 }
 
+// 반환값이 의미없긴 한데 introduction에 맞춰서 int로 설정
 int exec(const char* cmd_line) {
-  if (cmd_line == NULL) exit(-1);
   struct thread* curr = thread_current();
 
   if (!cmd_line) {
