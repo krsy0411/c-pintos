@@ -123,6 +123,8 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
       &child->fork_sema);  // 자식이 메모리에 load될 때까지 기다림(blocked)
   if (child->exit_status == -1) return TID_ERROR;
 
+  child->parent_tid = curr->tid;
+
   return tid;
 }
 
@@ -348,9 +350,12 @@ int process_exec(void *f_name) {
   // 2.4) 인자 전달 (스택은 load 함수에서 이미 설정됨)
   setup_arguments(&_if, argc, argv);
 
+
+  printf("%p", &file_name_cpy);
   /* 메모리 해제 : file_name 메모리 해제 */
   // palloc_free_page(file_name);
   palloc_free_page(file_name_cpy);
+
 
   // 👇👇👇 사용자 모드로 전환(새 프로그램으로 영구 전환)
   do_iret(&_if);  // 점프(즉, 돌아올 수 없음)
@@ -372,7 +377,8 @@ int process_wait(tid_t child_tid) {
   struct thread* child = NULL;
   // 1. child_tid를 이용하여 기다릴 자식 thread 찾기
   struct list_elem* e = NULL;
-  for (e = list_begin(&child_list); e != list_end(&child_list); e = list_next(e)) {
+
+  for (e = list_begin(&curr->child_list); e != list_end(&curr->child_list); e = list_next(e)) {
     struct thread* t = list_entry(e, struct thread, child_elem);
     if (t->tid == child_tid) {
       child = t;
