@@ -18,11 +18,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
-<<<<<<< HEAD
-=======
 #include "userprog/process.h"
 
->>>>>>> 030f6504f044e9112c23cfb6b45b0169e22d4a37
 #define FDT_SIZE 128
 typedef int pid_t;
 
@@ -40,7 +37,6 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-pid_t fork(const char* thread_name);
 
 /* 임시 보관소 */
 bool copy_in(void* dst, const void* usrc, size_t size);
@@ -360,37 +356,17 @@ void close(int fd) {
 
 // 반환값이 의미없긴 한데 introduction에 맞춰서 int로 설정
 int exec(const char* cmd_line) {
-  struct thread* curr = thread_current();
-
-  if (!cmd_line) {
-    exit(-1);
-  }
-  if (!is_user_vaddr(cmd_line)) {
-    exit(-1);
-  }
-
   char kernel_file[256];
-  int i = 0;
-  while (i < 255) {
-    if (!is_user_vaddr((void*)(cmd_line + i))) {
-      exit(-1);
-    }
-    if (!pml4_get_page(curr->pml4, (void*)(cmd_line + i))) {
-      exit(-1);
-    }
+  size_t i = 0;
 
-    kernel_file[i] = cmd_line[i];
-
-    if (cmd_line[i] == '\0') {
-      break;
-    }
-    i++;
+  if (!copy_in_string(kernel_file, cmd_line, sizeof kernel_file, &i)) {
+    exit(-1);
   }
+  kernel_file[i] = '\0';
 
   process_exec(kernel_file);
 }
 
-<<<<<<< HEAD
 /* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
    성공하면 true, 실패하면 false를 반환한다. */
 bool copy_in(void* dst, const void* usrc, size_t size) {
@@ -449,7 +425,7 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   /* (3) 버퍼 초과: NUL을 못 만남 */
   return false;
 }
-=======
+
 pid_t fork(const char* thread_name) {
   // 1. 주소 유효성 검사
   if (thread_name == NULL || !is_user_vaddr(thread_name) ||
@@ -477,4 +453,3 @@ pid_t fork(const char* thread_name) {
 
   return child_pid;
 }
->>>>>>> 030f6504f044e9112c23cfb6b45b0169e22d4a37
