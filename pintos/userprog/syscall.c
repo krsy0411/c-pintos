@@ -13,6 +13,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
@@ -21,7 +22,7 @@
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
-
+bool copy_in(void* dst, const void* usrc, size_t size);
 /* System call function declarations */
 void exit(int status);
 bool create(const char* file, unsigned initial_size);
@@ -220,46 +221,73 @@ unsigned tell(int fd) {
 }
 
 int write(int fd, const void* buffer, unsigned size) {
-  // fd가 1이면 콘솔에 출력
-  if (fd == 1) {
-    if ((size == 0) || (buffer == NULL)) return 0;
-    putbuf(buffer, size);
-    return size;
-  }
-
-  // 버퍼가 NULL이거나 size가 0이면 0 반환
   if ((size == 0) || (buffer == NULL)) return 0;
 
-  // 잘못된 fd인 경우 리턴
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
+  void* kbuff = palloc_get_page(PAL_ZERO);
 
-  // 버퍼가 유효한 사용자 주소인지 확인
-  for (unsigned i = 0; i < size; i++) {
-    if (!is_user_vaddr((uint8_t*)buffer + i)) {
-      exit(-1);
-    }
-    if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
-      exit(-1);
-    }
+  if (kbuff == NULL) {
+    exit(-1);
   }
 
-  // fdt에서 fd에 해당하는 파일 구조체 얻기
-  struct thread* curr = thread_current();
-  struct file* file = curr->fdt[fd];
+  if (!copy_in(kbuff, buffer, size)) {
+    exit(-1);
+  }
 
-  if (file == NULL) return -1;
+  int bytes_written = 0;
+  // fd가 1이면 콘솔에 출력
+  if (fd == 1) {
+    putbuf(kbuff, size);
+    bytes_written = size;
+  } else {
+    // 버퍼가 NULL이거나 size가 0이면 0 반환
+    // if ((size == 0) || (buffer == NULL)) return 0;
 
-  // 실제 쓰기 및 반환
-  int bytes_written = file_write(file, buffer, size);
+    // 잘못된 fd인 경우 리턴
+    if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
+
+    // 버퍼가 유효한 사용자 주소인지 확인
+    // for (unsigned i = 0; i < size; i++) {
+    //   if (!is_user_vaddr((uint8_t*)buffer + i)) {
+    //     exit(-1);
+    //   }
+    //   if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
+    //     exit(-1);
+    //   }
+    // }
+
+    // fdt에서 fd에 해당하는 파일 구조체 얻기
+    struct thread* curr = thread_current();
+    struct file* file = curr->fdt[fd];
+
+    if (file == NULL) return -1;
+
+    // 실제 쓰기 및 반환
+    bytes_written = file_write(file, kbuff, size);
+  }
+  palloc_free_page(kbuff);
   return bytes_written;
 }
+
 /* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
    성공하면 true, 실패하면 false를 반환한다. */
-bool copyin(void* dst, const void* usrc, size_t size) {
-  if (!is_user_vaddr(usrc) || !pml4_get_page(thread_current()->pml4, usrc)) {
-    return false;
+bool copy_in(void* dst, const void* usrc, size_t size) {
+  for (size_t i = 0; i < size; i++) {
+    const void* user_addr = (const char*)usrc + i;
+
+    if (!is_user_vaddr(user_addr)) {
+      return false;
+    }
+
+    void* kva = pml4_get_page(thread_current()->pml4, user_addr);
+    if (kva == NULL) {
+      return false;
+    }
+
+    ((char*)dst)[i] = *(char*)kva;
   }
+  return true;
 }
+
 int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
