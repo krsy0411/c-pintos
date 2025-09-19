@@ -18,7 +18,13 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
+<<<<<<< HEAD
+=======
+#include "userprog/process.h"
+
+>>>>>>> 030f6504f044e9112c23cfb6b45b0169e22d4a37
 #define FDT_SIZE 128
+typedef int pid_t;
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
@@ -34,6 +40,7 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
+pid_t fork(const char* thread_name);
 
 /* 임시 보관소 */
 bool copy_in(void* dst, const void* usrc, size_t size);
@@ -111,6 +118,10 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_CLOSE: {
       close((int)f->R.rdi);
+      break;
+    }
+    case SYS_FORK: {
+      f->R.rax = fork((const char*)f->R.rdi);
       break;
     }
     default: {
@@ -379,6 +390,7 @@ int exec(const char* cmd_line) {
   process_exec(kernel_file);
 }
 
+<<<<<<< HEAD
 /* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
    성공하면 true, 실패하면 false를 반환한다. */
 bool copy_in(void* dst, const void* usrc, size_t size) {
@@ -437,3 +449,32 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   /* (3) 버퍼 초과: NUL을 못 만남 */
   return false;
 }
+=======
+pid_t fork(const char* thread_name) {
+  // 1. 주소 유효성 검사
+  if (thread_name == NULL || !is_user_vaddr(thread_name) ||
+      !pml4_get_page(thread_current()->pml4, thread_name)) {
+    exit(-1);
+  }
+
+  // 2. 전체 문자열 유효성 검사
+  int len = 0;
+  int MAX_LEN = 16;  // 최대 길이 제한(16자)
+  while (len < MAX_LEN) {
+    if (!is_user_vaddr(thread_name + len) ||
+        !pml4_get_page(thread_current()->pml4, thread_name + len)) {
+      exit(-1);
+    }
+    if (thread_name[len] == '\0') break;
+    len++;
+  }
+
+  // 3. 부모의 인터럽트 프레임 주소
+  struct intr_frame* parent_if = &thread_current()->tf;
+
+  // 4. 자식 프로세스 생성
+  pid_t child_pid = process_fork(thread_name, parent_if);
+
+  return child_pid;
+}
+>>>>>>> 030f6504f044e9112c23cfb6b45b0169e22d4a37
