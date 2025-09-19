@@ -131,6 +131,8 @@ struct thread {
 
 extern struct list sleep_list;  // sleep 상태인 스레드들을 담는 리스트
 
+#define FDT_SIZE 128 // 파일 디스크립터 테이블 최대 크기
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -138,7 +140,7 @@ extern bool thread_mlfqs;
 
 void thread_init(void);
 void thread_start(void);
-
+extern struct list all_list;  // 모든 스레드를 담는 리스트(priority 재계산 용도)
 void thread_tick(void);
 void thread_print_stats(void);
 

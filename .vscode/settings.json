@@ -1,33 +1,59 @@
 {
-    "files.associations": {
-        "process.h": "c",
-        "thread.h": "c",
-        "vaddr.h": "c",
-        "stdio.h": "c",
-        "stdint.h": "c",
-        "list.h": "c",
-        "debug.h": "c",
-        "string.h": "c",
-        "malloc.h": "c",
-        "interrupt.h": "c",
-        "synch.h": "c",
-        "pte.h": "c",
-        "timer.h": "c",
-        "intrinsic.h": "c",
-        "intr-stubs.h": "c",
-        "palloc.h": "c",
-        "stddef.h": "c",
-        "random.h": "c",
-        "flags.h": "c",
-        "file.h": "c",
-        "off_t.h": "c",
-        "syscall-nr.h": "c",
-        "syscall.h": "c",
-        "tss.h": "c"
-    },
-    "editor.formatOnSave": true,
-    "C_Cpp.clang_format_fallbackStyle": "Google",
-    "C_Cpp.clang_format_sortIncludes": true,
-    "C_Cpp.clang_format_style": "file",
-    "files.eol": "\n"
+  "files.associations": {
+    "process.h": "c",
+    "thread.h": "c",
+    "vaddr.h": "c",
+    "stdio.h": "c",
+    "stdint.h": "c",
+    "list.h": "c",
+    "debug.h": "c",
+    "string.h": "c",
+    "malloc.h": "c",
+    "interrupt.h": "c",
+    "synch.h": "c",
+    "pte.h": "c",
+    "timer.h": "c",
+    "intrinsic.h": "c",
+    "intr-stubs.h": "c",
+    "palloc.h": "c",
+    "stddef.h": "c",
+    "random.h": "c",
+    "flags.h": "c",
+    "file.h": "c",
+    "main.h": "c",
+    "lib.h": "c",
+    "disk.h": "c",
+    "off_t.h": "c",
+    "syscall-nr.h": "c",
+    "syscall.h": "c",
+    "tss.h": "c",
+    "stdbool.h": "c",
+    "filesys.h": "c",
+    "init.h": "c",
+    "cstdlib": "c",
+    "array": "c",
+    "string_view": "c",
+    "initializer_list": "c",
+    "utility": "c"
+  },
+  /* 포맷팅 설정 */
+  "editor.formatOnSave": true, // 파일 저장(ctrl+s)할 때 자동 포맷팅
+  /* 들여쓰기 설정 */
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false, // 항상 위의 들여쓰기 설정 사용(기본 설정 모두 무시)
+  /* 공백 문자 설정 */
+  "editor.trimAutoWhitespace": true, // 자동 공백 문자 제거
+  "files.trimTrailingWhitespace": true, // 저장 시 행 끝 공백 제거
+  "files.trimFinalNewlines": true, // 파일 끝의 빈 줄 제거
+  /* 줄바꿈 설정 */
+  "files.eol": "\n", // LF 사용
+  /* C/C++ 특화 설정 */
+  "C_Cpp.clang_format_fallbackStyle": "Google", // 기본 스타일을 Google로 설정
+  "C_Cpp.clang_format_sortIncludes": true, // #include문 자동 정렬 활성화
+  /* 기타 편의 설정 */
+  "editor.minimap.enabled": false, // 미니맵 비활성화
+  "editor.renderWhitespace": "boundary", // 공백 문자 시각화
+  "editor.showFoldingControls": "always", // 항상 코드 접기 아이콘 표시
+  "editor.wordWrap": "off" // 자동 줄바꿈 비활성화
 }
