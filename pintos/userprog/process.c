@@ -119,13 +119,14 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
 
   struct thread *child =
       get_child_with_pid(tid);  // child_list안에서 만들어진 child thread를 찾음
+
+  child->parent_tid = curr->tid;
+
   sema_down(
       &child->fork_sema);  // 자식이 메모리에 load될 때까지 기다림(blocked)
   if (child->exit_status == -1) return TID_ERROR;
 
-  child->parent_tid = curr->tid;
-
-  return tid;
+  return child_tid;
 }
 
 #ifndef VM
@@ -350,8 +351,6 @@ int process_exec(void *f_name) {
   // 2.4) 인자 전달 (스택은 load 함수에서 이미 설정됨)
   setup_arguments(&_if, argc, argv);
 
-
-  printf("%p", &file_name_cpy);
   /* 메모리 해제 : file_name 메모리 해제 */
   // palloc_free_page(file_name);
   palloc_free_page(file_name_cpy);
