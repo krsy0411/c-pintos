@@ -92,6 +92,11 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       f->R.rax = tell(fd);
       break;
     }
+    case SYS_EXEC: {
+      exec((const char*)f->R.rdi);
+      break;
+    }
+
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
       break;
@@ -385,4 +390,36 @@ void close(int fd) {
 
   // fdt에서 제거
   curr->fdt[fd] = NULL;
+}
+
+// 반환값이 의미없긴 한데 introduction에 맞춰서 int로 설정
+int exec(const char* cmd_line) {
+  struct thread* curr = thread_current();
+
+  if (!cmd_line) {
+    exit(-1);
+  }
+  if (!is_user_vaddr(cmd_line)) {
+    exit(-1);
+  }
+
+  char kernel_file[256];
+  int i = 0;
+  while (i < 255) {
+    if (!is_user_vaddr((void*)(cmd_line + i))) {
+      exit(-1);
+    }
+    if (!pml4_get_page(curr->pml4, (void*)(cmd_line + i))) {
+      exit(-1);
+    }
+
+    kernel_file[i] = cmd_line[i];
+
+    if (cmd_line[i] == '\0') {
+      break;
+    }
+    i++;
+  }
+
+  process_exec(kernel_file);
 }
