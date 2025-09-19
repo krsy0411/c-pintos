@@ -7,6 +7,7 @@
 
 #include "synch.h"
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -110,6 +111,13 @@ struct thread {
 
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
+  uint64_t *pml4;               /* Page map level 4 */
+  int exit_status;              /* Process exit status */
+  struct file **fdt;            // 파일 디스크립터 테이블
+  struct list child_list;       // 자식 프로세스 리스트
+  struct list_elem child_elem;  // 자식 프로세스 리스트 원소
+
+  struct semaphore fork_sema;  // fork() 시그널용 세마포어
   uint64_t *pml4;     /* Page map level 4 */
   int exit_status;    /* Process exit status */
   struct file **fdt;  // 파일 디스크립터 테이블
@@ -134,7 +142,7 @@ struct thread {
 
 extern struct list sleep_list;  // sleep 상태인 스레드들을 담는 리스트
 
-#define FDT_SIZE 128 // 파일 디스크립터 테이블 최대 크기
+#define FDT_SIZE 128  // 파일 디스크립터 테이블 최대 크기
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
