@@ -79,11 +79,11 @@ static void kill(struct intr_frame *f) {
     case SEL_UCSEG:
       /* User's code segment, so it's a user exception, as we
          expected.  Kill the user process.  */
-      // printf ("%s: dying due to interrupt %#04llx (%s).\n",
-      // 		thread_name (), f->vec_no, intr_name (f->vec_no));
-      // intr_dump_frame (f);
-      // thread_exit ();
-      // exit(-1);
+      // printf("%s: dying due to interrupt %#04llx (%s).\n", thread_name(),
+      //        f->vec_no, intr_name(f->vec_no));
+      // intr_dump_frame(f);
+      // thread_exit();
+      exit(-1);
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
          Kernel code shouldn't throw exceptions.  (Page faults
@@ -138,7 +138,15 @@ static void page_fault(struct intr_frame *f) {
   /* For project 3 and later. */
   if (vm_try_handle_fault(f, fault_addr, user, write, not_present)) return;
 #endif
-
+/* 최종 코드
+  결국 페이지 폴트가 발생하는 경우에 exit(-1)을 호출하면 되는거라 일단 원본
+  유지하고 USERPROG일 때만 호출 될 수 있도록 했습니다!!
+*/
+#ifdef USERPROG
+  if (user) {
+    exit(-1);
+  }
+#endif
   /* Count page faults. */
   page_fault_cnt++;
 
