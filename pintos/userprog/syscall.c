@@ -235,6 +235,7 @@ int write(int fd, const void* buffer, unsigned size) {
   }
 
   if (!copy_in(kbuff, buffer, size)) {
+    palloc_free_page(kbuff);
     exit(-1);
   }
 
@@ -249,16 +250,6 @@ int write(int fd, const void* buffer, unsigned size) {
 
     // 잘못된 fd인 경우 리턴
     if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
-
-    // 버퍼가 유효한 사용자 주소인지 확인
-    // for (unsigned i = 0; i < size; i++) {
-    //   if (!is_user_vaddr((uint8_t*)buffer + i)) {
-    //     exit(-1);
-    //   }
-    //   if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
-    //     exit(-1);
-    //   }
-    // }
 
     // fdt에서 fd에 해당하는 파일 구조체 얻기
     struct thread* curr = thread_current();
