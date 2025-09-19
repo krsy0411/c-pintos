@@ -651,6 +651,7 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   list_init(&t->donation_list);
   t->nice = 0;
   t->recent_cpu = 0;
+  sema_init(&t->wait_sema, 0);
   // 👆👆👆
 
   t->magic = THREAD_MAGIC;

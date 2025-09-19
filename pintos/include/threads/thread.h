@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 
+#include "synch.h"
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -112,7 +113,7 @@ struct thread {
   uint64_t *pml4;     /* Page map level 4 */
   int exit_status;    /* Process exit status */
   struct file **fdt;  // 파일 디스크립터 테이블
-
+  struct semaphore wait_sema; // wait 시스템 콜 용 semaphore
 #endif
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */
