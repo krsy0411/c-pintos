@@ -98,7 +98,6 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       exec((const char*)f->R.rdi);
       break;
     }
-
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
       break;

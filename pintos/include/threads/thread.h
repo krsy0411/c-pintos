@@ -114,6 +114,8 @@ struct thread {
   int exit_status;    /* Process exit status */
   struct file **fdt;  // 파일 디스크립터 테이블
   struct semaphore wait_sema; // wait 시스템 콜 용 semaphore
+  struct semaphore exit_sema; // exit 시스템 콜 용 semaphore
+  tid_t parent_tid; // 부모 tid 보관
 #endif
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */

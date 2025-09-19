@@ -314,8 +314,8 @@ int process_wait(tid_t child_tid) {
   struct thread* child = NULL;
   // 1. child_tid를 이용하여 기다릴 자식 thread 찾기
   struct list_elem* e = NULL;
-  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-    struct thread* t = list_entry(e, struct thread, all_elem);
+  for (e = list_begin(&child_list); e != list_end(&child_list); e = list_next(e)) {
+    struct thread* t = list_entry(e, struct thread, child_elem);
     if (t->tid == child_tid) {
       child = t;
       break;
@@ -328,8 +328,12 @@ int process_wait(tid_t child_tid) {
   // 2. sema_down으로 기다리기
   sema_down(&child->wait_sema);
 
+  int status = child->exit_status;
+
+  sema_up(&curr->exit_sema);
+
   // 3. exit_status 반환
-  return child->exit_status;
+  return status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -352,6 +356,17 @@ void process_exit(void) {
   }
 #endif
   sema_up(&curr->wait_sema);
+
+  struct list_elem *e = NULL;
+  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+    struct thread* t = list_entry(e, struct thread, all_elem);
+    if (t->tid == curr->parent_tid) {
+      t->exit_status = curr->exit_status;
+      sema_down(&t->exit_sema);
+      break;
+    }
+  }
+
   process_cleanup();
 }
 
