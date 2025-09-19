@@ -9,6 +9,7 @@
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
+#include "userprog/process.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -18,6 +19,7 @@
 #include "userprog/gdt.h"
 
 #define FDT_SIZE 128
+typedef int pid_t;
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
@@ -103,6 +105,11 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_CLOSE: {
       close((int)f->R.rdi);
+      break;
+    }
+    case SYS_WAIT: {
+      pid_t pid = (pid_t)f->R.rdi;
+      f->R.rax = process_wait(pid);
       break;
     }
     default: {
