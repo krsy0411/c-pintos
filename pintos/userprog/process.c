@@ -393,6 +393,7 @@ int process_wait(tid_t child_tid) {
   sema_down(&child->wait_sema);
 
   int status = child->exit_status;
+  list_remove(&child->child_elem);
 
   sema_up(&curr->exit_sema);
 
@@ -420,6 +421,8 @@ void process_exit(void) {
   }
 #endif
   sema_up(&curr->wait_sema);
+
+
 
   struct list_elem *e = NULL;
   for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
