@@ -272,18 +272,19 @@ int process_exec(void *f_name) {
   // 추출(새 프로그램 로드)
   success = load(actual_file_name, &_if);
   // 👆👆👆
-  /* 로드에 성공하지 못했으면, 메모리 할당 해제하고 함수 종료 */
+  /* 로드에 성공하지 못했으면, 메모리 할당 해제하고 함수 exit()으로 즉시 종료.
+   * 반환하면 안됨 */
   if (!success) {
-    palloc_free_page(file_name);
+    // palloc_free_page(file_name);
     palloc_free_page(file_name_cpy);
-    return -1;
+    exit(-1);
   }
 
   // 2.4) 인자 전달 (스택은 load 함수에서 이미 설정됨)
   setup_arguments(&_if, argc, argv);
 
   /* 메모리 해제 : file_name 메모리 해제 */
-  palloc_free_page(file_name);
+  // palloc_free_page(file_name);
   palloc_free_page(file_name_cpy);
 
   // 👇👇👇 사용자 모드로 전환(새 프로그램으로 영구 전환)
@@ -332,7 +333,6 @@ void process_exit(void) {
     palloc_free_page(curr->fdt);
     curr->fdt = NULL;
   }
-
 #endif
   process_cleanup();
 }
