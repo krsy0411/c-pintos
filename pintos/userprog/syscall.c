@@ -10,7 +10,6 @@
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "string.h"
-#include "userprog/process.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -39,17 +38,14 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-<<<<<<< HEAD
 
 /* 임시 보관소 */
 bool copy_in(void* dst, const void* usrc, size_t size);
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len);
 static struct lock filesys_lock;
 /* 임시 보관소 */
-=======
 int exec(const char* cmd_line);
 pid_t fork(const char* thread_name, struct intr_frame* if_);
->>>>>>> 3fa1bb63ea00006cdb8dd95b9e467b6a6efb8b8f
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -378,7 +374,6 @@ int exec(const char* cmd_line) {
   process_exec(kernel_file);
 }
 
-<<<<<<< HEAD
 /* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
    성공하면 true, 실패하면 false를 반환한다. */
 bool copy_in(void* dst, const void* usrc, size_t size) {
@@ -438,15 +433,12 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   return false;
 }
 
-pid_t fork(const char* thread_name) {
-=======
 pid_t fork(const char* thread_name, struct intr_frame* if_) {
->>>>>>> 3fa1bb63ea00006cdb8dd95b9e467b6a6efb8b8f
   // 1. 주소 유효성 검사
   if (thread_name == NULL || !is_user_vaddr(thread_name) ||
       !pml4_get_page(thread_current()->pml4, thread_name)) {
     exit(-1);
-      }
+  }
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
@@ -455,7 +447,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
       exit(-1);
-        }
+    }
     if (thread_name[len] == '\0') break;
     len++;
   }
