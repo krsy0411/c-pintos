@@ -114,16 +114,24 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
   /* Clone current thread to new thread.*/
   struct thread *curr = thread_current();
 
-  tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, if_);
-  if (tid == TID_ERROR) return TID_ERROR;
+  /* ✅ 인터럽트 프레임을 복사해서 사용 */
+  struct intr_frame *if_copy = palloc_get_page(0);
+  if (if_copy == NULL) return TID_ERROR;
 
-  struct thread *child =
-      get_child_with_pid(tid);  // child_list안에서 만들어진 child thread를 찾음
+  memcpy(if_copy, if_, sizeof(struct intr_frame));
 
+  tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, if_copy);
+  if (tid == TID_ERROR) {
+    palloc_free_page(if_copy);
+    return TID_ERROR;
+  }
+
+  // child_list안에서 만들어진 child thread를 찾음
+  struct thread *child = get_child_with_pid(tid);
   child->parent_tid = curr->tid;
 
-  sema_down(
-      &child->fork_sema);  // 자식이 메모리에 load될 때까지 기다림(blocked)
+  // 자식이 메모리에 load될 때까지 기다림(blocked)
+  sema_down(&child->fork_sema);
   if (child->exit_status == -1) return TID_ERROR;
 
   return tid;
@@ -183,12 +191,24 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
  *       this function. */
 static void __do_fork(void *aux) {
   struct intr_frame if_;
-  struct thread *parent = (struct thread *)pg_round_down(aux);
   struct thread *current = thread_current();
-  /* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
+  /* ✅ 현재 스레드의 tf를 복사 :
+   * (process_fork에서 복사한 인터럽트 프레임을 전달해줌)
+   */
   struct intr_frame *parent_if = (struct intr_frame *)aux;
-  bool succ = true;
 
+  // ✅ 부모 스레드 찾기(parent_tid 이용)
+  struct thread *parent = NULL;
+  struct list_elem *e;
+  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, all_elem);
+    if (t->tid == current->parent_tid) {
+      parent = t;
+      break;
+    }
+  }
+
+  bool succ = true;
   /* 1. Read the cpu context to local stack. */
   // 부모 스레드의 인터럽트 프레임을 자식 스레드의 인터럽트 프레임에 복사
   memcpy(&if_, parent_if, sizeof(struct intr_frame));
@@ -220,10 +240,10 @@ static void __do_fork(void *aux) {
     if (file == NULL) continue;
 
     struct file *new_file;
-    if (fd > 2)  // 표준 입출력(0,1,2)은 복제하지 않고 그대로 공유
-      new_file = file_duplicate(file);
-    else
-      new_file = file;
+    // ✅ 모든 파일을 동일한 방식으로 복사
+    new_file = file_duplicate(file);
+    if (new_file == NULL) goto error;
+
     current->fdt[fd] = new_file;
   }
 
@@ -231,11 +251,13 @@ static void __do_fork(void *aux) {
   /* Finally, switch to the newly created process. */
   if (succ) {
     sema_up(&current->fork_sema);
+    palloc_free_page(parent_if);
     do_iret(&if_);
   }
 error:
   current->exit_status = -1;
   sema_up(&current->fork_sema);
+  palloc_free_page(parent_if);
   thread_exit();
 }
 
@@ -394,7 +416,7 @@ int process_wait(tid_t child_tid) {
   int status = child->exit_status;
   list_remove(&child->child_elem);
 
-  sema_up(&curr->exit_sema);
+  // sema_up(&curr->exit_sema);
 
   // 3. exit_status 반환
   return status;
@@ -428,7 +450,7 @@ void process_exit(void) {
     struct thread* t = list_entry(e, struct thread, all_elem);
     if (t->tid == curr->parent_tid) {
       t->exit_status = curr->exit_status;
-      sema_down(&t->exit_sema);
+      // sema_down(&t->exit_sema);
       break;
     }
   }
