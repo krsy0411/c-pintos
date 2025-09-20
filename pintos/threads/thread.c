@@ -356,6 +356,9 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
   /* all_list에 스레드 추가 */
   list_push_back(&all_list, &t->all_elem);
 
+  /* child_list에 스레드 추가 */
+  list_push_back(&thread_current()->child_list, &t->child_elem);
+
   /* Add to run queue. */
   thread_unblock(t);
 
@@ -656,6 +659,10 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   t->magic = THREAD_MAGIC;
 #ifdef USERPROG
   t->exit_status = -1;
+  list_init(&t->child_list);
+  sema_init(&t->fork_sema, 0);
+  sema_init(&t->wait_sema, 0);
+  sema_init(&t->exit_sema, 0);
 #endif
 }
 
