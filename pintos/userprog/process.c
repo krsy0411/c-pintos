@@ -416,7 +416,7 @@ int process_wait(tid_t child_tid) {
   int status = child->exit_status;
   list_remove(&child->child_elem);
 
-  sema_up(&curr->exit_sema);
+  // sema_up(&curr->exit_sema);
 
   // 3. exit_status 반환
   return status;
@@ -450,7 +450,7 @@ void process_exit(void) {
     struct thread* t = list_entry(e, struct thread, all_elem);
     if (t->tid == curr->parent_tid) {
       t->exit_status = curr->exit_status;
-      sema_down(&t->exit_sema);
+      // sema_down(&t->exit_sema);
       break;
     }
   }
