@@ -9,6 +9,7 @@
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
+#include "string.h"
 #include "userprog/process.h"
 #include "threads/flags.h"
 #include "threads/init.h"
@@ -37,7 +38,8 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-pid_t fork(const char* thread_name);
+int exec(const char* cmd_line);
+pid_t fork(const char* thread_name, struct intr_frame* if_);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -101,7 +103,6 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       exec((const char*)f->R.rdi);
       break;
     }
-
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
       break;
@@ -111,7 +112,7 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     }
     case SYS_FORK: {
-      f->R.rax = fork((const char*)f->R.rdi);
+      f->R.rax = fork((const char*)f->R.rdi, f);
       break;
     }
     case SYS_WAIT: {
@@ -456,12 +457,12 @@ int exec(const char* cmd_line) {
   process_exec(kernel_file);
 }
 
-pid_t fork(const char* thread_name) {
+pid_t fork(const char* thread_name, struct intr_frame* if_) {
   // 1. 주소 유효성 검사
   if (thread_name == NULL || !is_user_vaddr(thread_name) ||
       !pml4_get_page(thread_current()->pml4, thread_name)) {
     exit(-1);
-  }
+      }
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
@@ -470,16 +471,13 @@ pid_t fork(const char* thread_name) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
       exit(-1);
-    }
+        }
     if (thread_name[len] == '\0') break;
     len++;
   }
 
-  // 3. 부모의 인터럽트 프레임 주소
-  struct intr_frame* parent_if = &thread_current()->tf;
-
-  // 4. 자식 프로세스 생성
-  pid_t child_pid = process_fork(thread_name, parent_if);
+  // 3. 자식 프로세스 생성 (올바른 인터럽트 프레임 전달)
+  pid_t child_pid = process_fork(thread_name, if_);
 
   return child_pid;
 }
