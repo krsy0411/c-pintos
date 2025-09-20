@@ -126,7 +126,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
       &child->fork_sema);  // 자식이 메모리에 load될 때까지 기다림(blocked)
   if (child->exit_status == -1) return TID_ERROR;
 
-  return child_tid;
+  return tid;
 }
 
 #ifndef VM
