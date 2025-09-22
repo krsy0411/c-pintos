@@ -414,7 +414,7 @@ int process_wait(tid_t child_tid) {
   int status = child->exit_status;
   list_remove(&child->child_elem);
 
-  // sema_up(&curr->exit_sema);
+  sema_up(&child->exit_sema);
 
   // 3. exit_status 반환
   return status;
@@ -423,10 +423,6 @@ int process_wait(tid_t child_tid) {
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void) {
   struct thread *curr = thread_current();
-  /* TODO: Your code goes here.
-   * TODO: Implement process termination message (see
-   * TODO: project2/process_termination.html).
-   * TODO: We recommend you to implement process resource cleanup here. */
 #ifdef USERPROG
   // fdt 할당 해제
   if (curr->fdt != NULL) {
@@ -447,15 +443,7 @@ void process_exit(void) {
 #endif
   sema_up(&curr->wait_sema);
 
-  struct list_elem *e = NULL;
-  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-    struct thread *t = list_entry(e, struct thread, all_elem);
-    if (t->tid == curr->parent_tid) {
-      t->exit_status = curr->exit_status;
-      // sema_down(&t->exit_sema);
-      break;
-    }
-  }
+  sema_down(&curr->exit_sema);
 
   process_cleanup();
 }
