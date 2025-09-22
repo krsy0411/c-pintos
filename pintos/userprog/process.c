@@ -445,12 +445,6 @@ void process_exit(void) {
 
   sema_down(&curr->exit_sema);
 
-  while (!list_empty(&curr->child_list)) {
-    struct list_elem *e = list_begin(&curr->child_list);
-    struct thread *t = list_entry(e, struct thread, child_elem);
-    list_remove(&t->child_elem);
-  }
-
   process_cleanup();
 }
 
