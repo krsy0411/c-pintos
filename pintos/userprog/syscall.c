@@ -159,9 +159,9 @@ bool create(const char* file, unsigned initial_size) {
   if (fname_len == 0) {
     return false;
   }
-  /* 락 */
+
   bool ok = filesys_create(fname, initial_size);
-  /* 락 */
+  
   return ok;
 }
 
@@ -182,9 +182,8 @@ bool remove(const char* file) {
   if (fname_len == 0) {
     return false;
   }
-  /* 락 */
+
   bool ok = filesys_remove(fname);
-  /* 락 */
   return ok;
 }
 
@@ -224,24 +223,20 @@ int write(int fd, const void* buffer, unsigned size) {
   }
 
   int bytes_written = 0;
-  // fd가 1이면 콘솔에 출력
+
   if (fd == 1) {
     putbuf(kbuff, size);
     bytes_written = size;
   } else {
-    // 잘못된 fd인 경우 리턴
     if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
 
-    // fdt에서 fd에 해당하는 파일 구조체 얻기
     struct thread* curr = thread_current();
     struct file* file = curr->fdt[fd];
 
     if (file == NULL) return -1;
 
-    // 실제 쓰기 및 반환
-    lock_acquire(&filesys_lock);
+
     bytes_written = file_write(file, kbuff, size);
-    lock_release(&filesys_lock);
   }
   palloc_free_page(kbuff);
   return bytes_written;
@@ -303,7 +298,6 @@ int open(const char* file) {
 
   kname[len] = '\0';
 
-  // 파일 열기 (락 권장)
   struct file* f = filesys_open(kname);
 
   if (f == NULL) {
@@ -452,6 +446,8 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   return child_pid;
 }
 
+
 int wait(pid_t pid) {
   return process_wait(pid);
 }
+
