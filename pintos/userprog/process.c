@@ -92,11 +92,47 @@ static void initd(void *f_name) {
   NOT_REACHED();
 }
 
+/* 현재 프로세스의 자식리스트를 검색하여 해당 tid에 맞는 디스크립터 반환 */
+struct thread *get_child_with_pid(tid_t tid) {
+  struct thread *parent = thread_current();
+  struct list_elem *e;
+
+  for (e = list_begin(&parent->child_list); e != list_end(&parent->child_list);
+       e = list_next(e)) {
+    struct thread *child = list_entry(e, struct thread, child_elem);
+    if (child->tid == tid) {
+      return child;
+    }
+  }
+  return NULL;
+}
+
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
   /* Clone current thread to new thread.*/
-  return thread_create(name, PRI_DEFAULT, __do_fork, thread_current());
+  struct thread *curr = thread_current();
+
+  /* ✅ 인터럽트 프레임을 복사해서 사용 */
+  struct intr_frame *if_copy = palloc_get_page(0);
+  if (if_copy == NULL) return TID_ERROR;
+
+  memcpy(if_copy, if_, sizeof(struct intr_frame));
+
+  tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, if_copy);
+  if (tid == TID_ERROR) {
+    palloc_free_page(if_copy);
+    return TID_ERROR;
+  }
+
+  // child_list안에서 만들어진 child thread를 찾음
+  struct thread *child = get_child_with_pid(tid);
+  child->parent_tid = curr->tid;
+
+  // 자식이 메모리에 load될 때까지 기다림(blocked)
+  sema_down(&child->fork_sema);
+
+  return tid;
 }
 
 #ifndef VM
@@ -110,21 +146,38 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
   bool writable;
 
   /* 1. TODO: If the parent_page is kernel page, then return immediately. */
+  if (is_kernel_vaddr(va)) {
+    return true;
+  }
 
   /* 2. Resolve VA from the parent's page map level 4. */
   parent_page = pml4_get_page(parent->pml4, va);
+  if (parent_page == NULL) {
+    return false;
+  }
 
   /* 3. TODO: Allocate new PAL_USER page for the child and set result to
    *    TODO: NEWPAGE. */
+  newpage = palloc_get_page(PAL_USER);
+  if (newpage == NULL) {
+    return false;
+  }
 
   /* 4. TODO: Duplicate parent's page to the new page and
    *    TODO: check whether parent's page is writable or not (set WRITABLE
    *    TODO: according to the result). */
+  memcpy(newpage, parent_page, PGSIZE);  // 페이지 크기만큼 복사
+  /* 부모의 PTE에서 직접 writable 비트 확인 */
+  uint64_t *parent_pte = pml4e_walk(parent->pml4, (uint64_t)va, 0);
+  writable = (parent_pte != NULL) &&
+             (*parent_pte & PTE_W);  // PTE의 writable 비트(PTE_W) 확인
 
   /* 5. Add new page to child's page table at address VA with WRITABLE
    *    permission. */
   if (!pml4_set_page(current->pml4, va, newpage, writable)) {
     /* 6. TODO: if fail to insert page, do error handling. */
+    palloc_free_page(newpage);
+    return false;
   }
   return true;
 }
@@ -136,14 +189,28 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
  *       this function. */
 static void __do_fork(void *aux) {
   struct intr_frame if_;
-  struct thread *parent = (struct thread *)aux;
   struct thread *current = thread_current();
-  /* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-  struct intr_frame *parent_if;
-  bool succ = true;
+  /* ✅ 현재 스레드의 tf를 복사 :
+   * (process_fork에서 복사한 인터럽트 프레임을 전달해줌)
+   */
+  struct intr_frame *parent_if = (struct intr_frame *)aux;
 
+  // ✅ 부모 스레드 찾기(parent_tid 이용)
+  struct thread *parent = NULL;
+  struct list_elem *e;
+  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, all_elem);
+    if (t->tid == current->parent_tid) {
+      parent = t;
+      break;
+    }
+  }
+
+  bool succ = true;
   /* 1. Read the cpu context to local stack. */
+  // 부모 스레드의 인터럽트 프레임을 자식 스레드의 인터럽트 프레임에 복사
   memcpy(&if_, parent_if, sizeof(struct intr_frame));
+  if_.R.rax = 0;  // 자식에서 fork() 반환값은 0으로 설정
 
   /* 2. Duplicate PT */
   current->pml4 = pml4_create();
@@ -165,9 +232,30 @@ static void __do_fork(void *aux) {
 
   process_init();
 
+  /* 파일 디스크립터 테이블 복제 */
+  for (int fd = 0; fd < FDT_SIZE; fd++) {
+    struct file *file = parent->fdt[fd];
+    if (file == NULL) continue;
+
+    struct file *new_file;
+    // ✅ 모든 파일을 동일한 방식으로 복사
+    new_file = file_duplicate(file);
+    if (new_file == NULL) goto error;
+
+    current->fdt[fd] = new_file;
+  }
+
+  /* 마지막으로, 새롭게 생성된 프로세스로 전환합니다. */
   /* Finally, switch to the newly created process. */
-  if (succ) do_iret(&if_);
+  if (succ) {
+    sema_up(&current->fork_sema);
+    palloc_free_page(parent_if);
+    do_iret(&if_);
+  }
 error:
+  current->exit_status = -1;
+  sema_up(&current->fork_sema);
+  palloc_free_page(parent_if);
   thread_exit();
 }
 
@@ -302,26 +390,39 @@ int process_exec(void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int process_wait(tid_t child_tid UNUSED) {
-  /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-   * XXX:       to add infinite loop here before
-   * XXX:       implementing the process_wait. */
+int process_wait(tid_t child_tid) {
+  struct thread *curr = thread_current();
+  struct thread *child = NULL;
+  // 1. child_tid를 이용하여 기다릴 자식 thread 찾기
+  struct list_elem *e = NULL;
 
-  // TODO: Implement proper process_wait functionality
-  // For now, use thread_yield() in a loop to avoid blocking the scheduler
-  for (int i = 0; i < 10000; i++) {
-    thread_yield();
+  for (e = list_begin(&curr->child_list); e != list_end(&curr->child_list);
+       e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, child_elem);
+    if (t->tid == child_tid) {
+      child = t;
+      break;
+    }
   }
-  return -1;
+  if (child == NULL) {
+    return -1;
+  }
+
+  // 2. sema_down으로 기다리기
+  sema_down(&child->wait_sema);
+
+  int status = child->exit_status;
+  list_remove(&child->child_elem);
+
+  sema_up(&child->exit_sema);
+
+  // 3. exit_status 반환
+  return status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void) {
   struct thread *curr = thread_current();
-  /* TODO: Your code goes here.
-   * TODO: Implement process termination message (see
-   * TODO: project2/process_termination.html).
-   * TODO: We recommend you to implement process resource cleanup here. */
 #ifdef USERPROG
   // fdt 할당 해제
   if (curr->fdt != NULL) {
@@ -333,7 +434,17 @@ void process_exit(void) {
     palloc_free_page(curr->fdt);
     curr->fdt = NULL;
   }
+
+  /* 프로세스 종료와 함께 실행 중인 파일 정보 해제 */
+  if (curr->running_file != NULL) {
+    file_close(curr->running_file);
+    curr->running_file = NULL;
+  }
 #endif
+  sema_up(&curr->wait_sema);
+
+  sema_down(&curr->exit_sema);
+
   process_cleanup();
 }
 
@@ -456,6 +567,10 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     goto done;
   }
 
+  /* 실행 중인 파일 쓰기 금지 & 스레드에 정보 저장 */
+  file_deny_write(file);
+  t->running_file = file;
+
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\2\1\1", 7) || ehdr.e_type != 2 ||
@@ -529,7 +644,13 @@ static bool load(const char *file_name, struct intr_frame *if_) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+  /* 로드 실패 시에만 파일을 닫음 */
+  if ((!success) && (file != NULL)) {
+    file_allow_write(file);
+    file_close(file);
+    t->running_file = NULL;
+  }
+
   return success;
 }
 

@@ -9,19 +9,23 @@
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
 #include "intrinsic.h"
+#include "string.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
+#include "userprog/process.h"
 
 #define FDT_SIZE 128
+typedef int pid_t;
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
-
+bool copy_in(void* dst, const void* usrc, size_t size);
 /* System call function declarations */
 void exit(int status);
 bool create(const char* file, unsigned initial_size);
@@ -33,6 +37,9 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
+int exec(const char* cmd_line);
+pid_t fork(const char* thread_name, struct intr_frame* if_);
+int wait(pid_t pid);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -96,13 +103,21 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       exec((const char*)f->R.rdi);
       break;
     }
-
     case SYS_OPEN: {
       f->R.rax = open((const char*)f->R.rdi);
       break;
     }
     case SYS_CLOSE: {
       close((int)f->R.rdi);
+      break;
+    }
+    case SYS_FORK: {
+      f->R.rax = fork((const char*)f->R.rdi, f);
+      break;
+    }
+    case SYS_WAIT: {
+      pid_t pid = (pid_t)f->R.rdi;
+      f->R.rax = wait(pid);
       break;
     }
     default: {
@@ -225,46 +240,98 @@ unsigned tell(int fd) {
 }
 
 int write(int fd, const void* buffer, unsigned size) {
-  // fd가 1이면 콘솔에 출력
-  if (fd == 1) {
-    if ((size == 0) || (buffer == NULL)) return 0;
-    putbuf(buffer, size);
-    return size;
-  }
-
-  // 버퍼가 NULL이거나 size가 0이면 0 반환
   if ((size == 0) || (buffer == NULL)) return 0;
 
-  // 잘못된 fd인 경우 리턴
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
+  // fd가 1이면 콘솔에 출력 (버퍼 할당 불필요)
+  if (fd == 1) {
+    // 큰 데이터는 청크 단위로 나누어 출력
+    const size_t CHUNK_SIZE = 4096;
+    size_t remaining = size;
+    size_t offset = 0;
 
-  // 버퍼가 유효한 사용자 주소인지 확인
-  for (unsigned i = 0; i < size; i++) {
-    if (!is_user_vaddr((uint8_t*)buffer + i)) {
-      exit(-1);
+    while (remaining > 0) {
+      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+
+      void* kbuff = palloc_get_page(PAL_ZERO);
+      if (kbuff == NULL) {
+        exit(-1);
+      }
+
+      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
+        palloc_free_page(kbuff);
+        exit(-1);
+      }
+
+      putbuf(kbuff, chunk_size);
+      palloc_free_page(kbuff);
+
+      offset += chunk_size;
+      remaining -= chunk_size;
     }
-    if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
-      exit(-1);
+    return size;
+  } else {
+    // 파일 쓰기도 동일하게 청크 단위로 처리
+    if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
+
+    struct thread* curr = thread_current();
+    struct file* file = curr->fdt[fd];
+    if (file == NULL) return -1;
+
+    const size_t CHUNK_SIZE = 4096;
+    size_t remaining = size;
+    size_t offset = 0;
+    int total_written = 0;
+
+    while (remaining > 0) {
+      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+
+      void* kbuff = palloc_get_page(PAL_ZERO);
+      if (kbuff == NULL) {
+        break;
+      }
+
+      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
+        palloc_free_page(kbuff);
+        break;
+      }
+
+      int bytes_written = file_write(file, kbuff, chunk_size);
+      palloc_free_page(kbuff);
+
+      if (bytes_written != chunk_size) {
+        total_written += bytes_written;
+        break;
+      }
+
+      total_written += bytes_written;
+      offset += chunk_size;
+      remaining -= chunk_size;
     }
+
+    return total_written;
   }
-
-  // fdt에서 fd에 해당하는 파일 구조체 얻기
-  struct thread* curr = thread_current();
-  struct file* file = curr->fdt[fd];
-
-  if (file == NULL) return -1;
-
-  // 실제 쓰기 및 반환
-  int bytes_written = file_write(file, buffer, size);
-  return bytes_written;
 }
+
 /* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
    성공하면 true, 실패하면 false를 반환한다. */
-bool copyin(void* dst, const void* usrc, size_t size) {
-  if (!is_user_vaddr(usrc) || !pml4_get_page(thread_current()->pml4, usrc)) {
-    return false;
+bool copy_in(void* dst, const void* usrc, size_t size) {
+  for (size_t i = 0; i < size; i++) {
+    const void* user_addr = (const char*)usrc + i;
+
+    if (!is_user_vaddr(user_addr)) {
+      return false;
+    }
+
+    void* kva = pml4_get_page(thread_current()->pml4, user_addr);
+    if (kva == NULL) {
+      return false;
+    }
+
+    ((char*)dst)[i] = *(char*)kva;
   }
+  return true;
 }
+
 int read(int fd, void* buffer, unsigned size) {
   int bytes_read = 0;
 
@@ -422,4 +489,33 @@ int exec(const char* cmd_line) {
   }
 
   process_exec(kernel_file);
+}
+
+pid_t fork(const char* thread_name, struct intr_frame* if_) {
+  // 1. 주소 유효성 검사
+  if (thread_name == NULL || !is_user_vaddr(thread_name) ||
+      !pml4_get_page(thread_current()->pml4, thread_name)) {
+    exit(-1);
+  }
+
+  // 2. 전체 문자열 유효성 검사
+  int len = 0;
+  int MAX_LEN = 16;  // 최대 길이 제한(16자)
+  while (len < MAX_LEN) {
+    if (!is_user_vaddr(thread_name + len) ||
+        !pml4_get_page(thread_current()->pml4, thread_name + len)) {
+      exit(-1);
+    }
+    if (thread_name[len] == '\0') break;
+    len++;
+  }
+
+  // 3. 자식 프로세스 생성 (올바른 인터럽트 프레임 전달)
+  pid_t child_pid = process_fork(thread_name, if_);
+
+  return child_pid;
+}
+
+int wait(pid_t pid) {
+  return process_wait(pid);
 }
