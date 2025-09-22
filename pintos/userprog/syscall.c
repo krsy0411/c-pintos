@@ -55,6 +55,7 @@ void syscall_init(void) {
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
   write_msr(MSR_SYSCALL_MASK,
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+  lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -158,7 +159,9 @@ bool create(const char* file, unsigned initial_size) {
   if (fname_len == 0) {
     return false;
   }
+
   bool ok = filesys_create(fname, initial_size);
+  
   return ok;
 }
 
@@ -174,11 +177,12 @@ bool remove(const char* file) {
     return false;
   }
 
-  fname[fname_len] = '\0';
+  fname[fname_len] = '\0';  // 락 하면 없어도 됨 아마도...
 
   if (fname_len == 0) {
     return false;
   }
+
   bool ok = filesys_remove(fname);
   return ok;
 }
@@ -231,9 +235,8 @@ int write(int fd, const void* buffer, unsigned size) {
 
     if (file == NULL) return -1;
 
-    lock_acquire(&filesys_lock);
+
     bytes_written = file_write(file, kbuff, size);
-    lock_release(&filesys_lock);
   }
   palloc_free_page(kbuff);
   return bytes_written;
@@ -443,4 +446,8 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   return child_pid;
 }
 
-int wait(pid_t pid) { return process_wait(pid); }
+
+int wait(pid_t pid) {
+  return process_wait(pid);
+}
+
