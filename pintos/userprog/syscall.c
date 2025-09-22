@@ -216,7 +216,6 @@ int write(int fd, const void* buffer, unsigned size) {
   if ((size == 0) || (buffer == NULL)) return 0;
 
   void* kbuff = palloc_get_page(PAL_ZERO);
-
   if (kbuff == NULL) {
     exit(-1);
   }
@@ -232,9 +231,6 @@ int write(int fd, const void* buffer, unsigned size) {
     putbuf(kbuff, size);
     bytes_written = size;
   } else {
-    // 버퍼가 NULL이거나 size가 0이면 0 반환
-    // if ((size == 0) || (buffer == NULL)) return 0;
-
     // 잘못된 fd인 경우 리턴
     if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
 

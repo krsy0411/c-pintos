@@ -11,7 +11,6 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "intrinsic.h"
-#include "threads/synch.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -132,7 +131,6 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED) {
 
   // 자식이 메모리에 load될 때까지 기다림(blocked)
   sema_down(&child->fork_sema);
-  if (child->exit_status == -1) return TID_ERROR;
 
   return tid;
 }
@@ -377,7 +375,6 @@ int process_exec(void *f_name) {
   // palloc_free_page(file_name);
   palloc_free_page(file_name_cpy);
 
-
   // 👇👇👇 사용자 모드로 전환(새 프로그램으로 영구 전환)
   do_iret(&_if);  // 점프(즉, 돌아올 수 없음)
   // 👆👆👆
@@ -394,13 +391,14 @@ int process_exec(void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int process_wait(tid_t child_tid) {
-  struct thread* curr = thread_current();
-  struct thread* child = NULL;
+  struct thread *curr = thread_current();
+  struct thread *child = NULL;
   // 1. child_tid를 이용하여 기다릴 자식 thread 찾기
-  struct list_elem* e = NULL;
+  struct list_elem *e = NULL;
 
-  for (e = list_begin(&curr->child_list); e != list_end(&curr->child_list); e = list_next(e)) {
-    struct thread* t = list_entry(e, struct thread, child_elem);
+  for (e = list_begin(&curr->child_list); e != list_end(&curr->child_list);
+       e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, child_elem);
     if (t->tid == child_tid) {
       child = t;
       break;
@@ -440,14 +438,18 @@ void process_exit(void) {
     palloc_free_page(curr->fdt);
     curr->fdt = NULL;
   }
+
+  /* 프로세스 종료와 함께 실행 중인 파일 정보 해제 */
+  if (curr->running_file != NULL) {
+    file_close(curr->running_file);
+    curr->running_file = NULL;
+  }
 #endif
   sema_up(&curr->wait_sema);
 
-
-
   struct list_elem *e = NULL;
   for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-    struct thread* t = list_entry(e, struct thread, all_elem);
+    struct thread *t = list_entry(e, struct thread, all_elem);
     if (t->tid == curr->parent_tid) {
       t->exit_status = curr->exit_status;
       // sema_down(&t->exit_sema);
@@ -577,6 +579,10 @@ static bool load(const char *file_name, struct intr_frame *if_) {
     goto done;
   }
 
+  /* 실행 중인 파일 쓰기 금지 & 스레드에 정보 저장 */
+  file_deny_write(file);
+  t->running_file = file;
+
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\2\1\1", 7) || ehdr.e_type != 2 ||
@@ -650,7 +656,13 @@ static bool load(const char *file_name, struct intr_frame *if_) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+  /* 로드 실패 시에만 파일을 닫음 */
+  if ((!success) && (file != NULL)) {
+    file_allow_write(file);
+    file_close(file);
+    t->running_file = NULL;
+  }
+
   return success;
 }
 
