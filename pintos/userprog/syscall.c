@@ -20,7 +20,7 @@
 #include "userprog/gdt.h"
 #include "userprog/process.h"
 
-#define FDT_SIZE 128
+#define FDT_SIZE 512
 typedef int pid_t;
 
 void syscall_entry(void);
@@ -40,6 +40,7 @@ void close(int fd);
 int exec(const char* cmd_line);
 pid_t fork(const char* thread_name, struct intr_frame* if_);
 int wait(pid_t pid);
+int dup2(int oldfd, int newfd);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -118,6 +119,12 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_WAIT: {
       pid_t pid = (pid_t)f->R.rdi;
       f->R.rax = wait(pid);
+      break;
+    }
+    case SYS_DUP2: {
+      int oldfd = (int)f->R.rdi;
+      int newfd = (int)f->R.rsi;
+      f->R.rax = dup2(oldfd, newfd);
       break;
     }
     default: {
@@ -480,4 +487,21 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
 
 int wait(pid_t pid) {
   return process_wait(pid);
+}
+
+int dup2(int oldfd, int newfd) {
+  if (oldfd < 0 || oldfd >= FDT_SIZE) return -1;
+  if (newfd < 0 || newfd >= FDT_SIZE) return -1;
+
+  if (oldfd == newfd) return newfd;
+  struct thread *curr = thread_current();
+
+  if (curr->fdt[newfd] != NULL) close(newfd);
+
+  struct file *file = curr->fdt[oldfd];
+
+  curr->fdt[newfd] = file;
+  file_add_ref(file);
+
+  return newfd;
 }
