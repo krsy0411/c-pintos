@@ -146,8 +146,8 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux) {
   bool writable;
 
   /* 1. TODO: If the parent_page is kernel page, then return immediately. */
-  if (is_kernel_vaddr(va)) {
-    return true;
+  if (!is_kernel_vaddr(va)) {
+    return false;
   }
 
   /* 2. Resolve VA from the parent's page map level 4. */
@@ -414,7 +414,7 @@ int process_wait(tid_t child_tid) {
   int status = child->exit_status;
   list_remove(&child->child_elem);
 
-  // sema_up(&curr->exit_sema);
+  sema_up(&child->exit_sema);
 
   // 3. exit_status 반환
   return status;
@@ -447,16 +447,7 @@ void process_exit(void) {
 #endif
   sema_up(&curr->wait_sema);
 
-  struct list_elem *e = NULL;
-  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-    struct thread *t = list_entry(e, struct thread, all_elem);
-    if (t->tid == curr->parent_tid) {
-      t->exit_status = curr->exit_status;
-      // sema_down(&t->exit_sema);
-      break;
-    }
-  }
-
+  sema_down(&curr->exit_sema);
   process_cleanup();
 }
 
