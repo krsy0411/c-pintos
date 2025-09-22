@@ -177,7 +177,7 @@ bool remove(const char* file) {
     return false;
   }
 
-  fname[fname_len] = '\0';  // 락 하면 없어도 됨 아마도...
+  fname[fname_len] = '\0';
 
   if (fname_len == 0) {
     return false;
