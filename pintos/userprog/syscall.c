@@ -39,6 +39,7 @@ unsigned tell(int fd);
 void close(int fd);
 int exec(const char* cmd_line);
 pid_t fork(const char* thread_name, struct intr_frame* if_);
+int wait(pid_t pid);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -116,7 +117,7 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_WAIT: {
       pid_t pid = (pid_t)f->R.rdi;
-      f->R.rax = process_wait(pid);
+      f->R.rax = wait(pid);
       break;
     }
     default: {
@@ -475,4 +476,8 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   pid_t child_pid = process_fork(thread_name, if_);
 
   return child_pid;
+}
+
+int wait(pid_t pid) {
+  return process_wait(pid);
 }
