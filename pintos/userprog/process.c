@@ -414,7 +414,7 @@ int process_wait(tid_t child_tid) {
   int status = child->exit_status;
   list_remove(&child->child_elem);
 
-  sema_up(&curr->exit_sema);
+  sema_up(&child->exit_sema);
 
   // 3. exit_status 반환
   return status;
