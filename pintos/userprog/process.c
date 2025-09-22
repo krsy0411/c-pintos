@@ -440,7 +440,10 @@ void process_exit(void) {
   }
 
   /* 프로세스 종료와 함께 실행 중인 파일 정보 해제 */
-  curr->running_file = NULL;
+  if (curr->running_file != NULL) {
+    file_close(curr->running_file);
+    curr->running_file = NULL;
+  }
 #endif
   sema_up(&curr->wait_sema);
 
