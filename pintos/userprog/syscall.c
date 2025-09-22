@@ -10,7 +10,6 @@
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "string.h"
-#include "userprog/process.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -243,7 +242,6 @@ int write(int fd, const void* buffer, unsigned size) {
   if ((size == 0) || (buffer == NULL)) return 0;
 
   void* kbuff = palloc_get_page(PAL_ZERO);
-
   if (kbuff == NULL) {
     exit(-1);
   }
@@ -259,9 +257,6 @@ int write(int fd, const void* buffer, unsigned size) {
     putbuf(kbuff, size);
     bytes_written = size;
   } else {
-    // 버퍼가 NULL이거나 size가 0이면 0 반환
-    // if ((size == 0) || (buffer == NULL)) return 0;
-
     // 잘못된 fd인 경우 리턴
     if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
 
@@ -462,7 +457,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   if (thread_name == NULL || !is_user_vaddr(thread_name) ||
       !pml4_get_page(thread_current()->pml4, thread_name)) {
     exit(-1);
-      }
+  }
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
@@ -471,7 +466,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
       exit(-1);
-        }
+    }
     if (thread_name[len] == '\0') break;
     len++;
   }
