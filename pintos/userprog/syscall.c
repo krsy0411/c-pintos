@@ -38,12 +38,9 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-
-/* 임시 보관소 */
 bool copy_in(void* dst, const void* usrc, size_t size);
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len);
 static struct lock filesys_lock;
-/* 임시 보관소 */
 int exec(const char* cmd_line);
 pid_t fork(const char* thread_name, struct intr_frame* if_);
 
