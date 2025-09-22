@@ -32,7 +32,6 @@ core
 # VSCode
 .vscode/
 !.vscode/settings.json
-.vscode/launch.json
 
 # 98jh-shin
 .idea
