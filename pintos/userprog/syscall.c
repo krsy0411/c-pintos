@@ -240,12 +240,13 @@ unsigned tell(int fd) {
 }
 
 int write(int fd, const void* buffer, unsigned size) {
+  const size_t CHUNK_SIZE = 4096;
   if ((size == 0) || (buffer == NULL)) return 0;
 
   // fd가 1이면 콘솔에 출력 (버퍼 할당 불필요)
   if (fd == 1) {
     // 큰 데이터는 청크 단위로 나누어 출력
-    const size_t CHUNK_SIZE = 4096;
+
     size_t remaining = size;
     size_t offset = 0;
 
@@ -277,7 +278,6 @@ int write(int fd, const void* buffer, unsigned size) {
     struct file* file = curr->fdt[fd];
     if (file == NULL) return -1;
 
-    const size_t CHUNK_SIZE = 4096;
     size_t remaining = size;
     size_t offset = 0;
     int total_written = 0;
@@ -287,12 +287,12 @@ int write(int fd, const void* buffer, unsigned size) {
 
       void* kbuff = palloc_get_page(PAL_ZERO);
       if (kbuff == NULL) {
-        break;
+        exit(-1);
       }
 
       if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
         palloc_free_page(kbuff);
-        break;
+        exit(-1);
       }
 
       int bytes_written = file_write(file, kbuff, chunk_size);
@@ -516,6 +516,4 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   return child_pid;
 }
 
-int wait(pid_t pid) {
-  return process_wait(pid);
-}
+int wait(pid_t pid) { return process_wait(pid); }
