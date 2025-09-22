@@ -10,7 +10,6 @@
 #include "filesys/off_t.h"
 #include "intrinsic.h"
 #include "string.h"
-#include "userprog/process.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -40,6 +39,7 @@ unsigned tell(int fd);
 void close(int fd);
 int exec(const char* cmd_line);
 pid_t fork(const char* thread_name, struct intr_frame* if_);
+int wait(pid_t pid);
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -117,7 +117,7 @@ void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_WAIT: {
       pid_t pid = (pid_t)f->R.rdi;
-      f->R.rax = process_wait(pid);
+      f->R.rax = wait(pid);
       break;
     }
     default: {
@@ -243,7 +243,6 @@ int write(int fd, const void* buffer, unsigned size) {
   if ((size == 0) || (buffer == NULL)) return 0;
 
   void* kbuff = palloc_get_page(PAL_ZERO);
-
   if (kbuff == NULL) {
     exit(-1);
   }
@@ -259,9 +258,6 @@ int write(int fd, const void* buffer, unsigned size) {
     putbuf(kbuff, size);
     bytes_written = size;
   } else {
-    // 버퍼가 NULL이거나 size가 0이면 0 반환
-    // if ((size == 0) || (buffer == NULL)) return 0;
-
     // 잘못된 fd인 경우 리턴
     if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
 
@@ -462,7 +458,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   if (thread_name == NULL || !is_user_vaddr(thread_name) ||
       !pml4_get_page(thread_current()->pml4, thread_name)) {
     exit(-1);
-      }
+  }
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
@@ -471,7 +467,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
       exit(-1);
-        }
+    }
     if (thread_name[len] == '\0') break;
     len++;
   }
@@ -480,4 +476,8 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   pid_t child_pid = process_fork(thread_name, if_);
 
   return child_pid;
+}
+
+int wait(pid_t pid) {
+  return process_wait(pid);
 }

@@ -118,9 +118,12 @@ struct thread {
   struct list_elem child_elem;  // 자식 프로세스 리스트 원소
 
   struct semaphore fork_sema;  // fork() 시그널용 세마포어
-  struct semaphore wait_sema; // wait 시스템 콜 용 semaphore
-  struct semaphore exit_sema; // exit 시스템 콜 용 semaphore
-  tid_t parent_tid; // 부모 tid 보관
+  struct semaphore wait_sema;  // wait 시스템 콜 용 semaphore
+  struct semaphore exit_sema;  // exit 시스템 콜 용 semaphore
+  tid_t parent_tid;            // 부모 tid 보관
+
+  // rox(read only executable)를 위해, 스레드가 실행 중인 파일 정보를 저장
+  struct file *running_file;
 #endif
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */
