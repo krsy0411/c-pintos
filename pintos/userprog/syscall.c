@@ -15,6 +15,7 @@
 #include "threads/interrupt.h"
 #include "threads/loader.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
@@ -25,7 +26,7 @@ typedef int pid_t;
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
-bool copy_in(void* dst, const void* usrc, size_t size);
+
 /* System call function declarations */
 void exit(int status);
 bool create(const char* file, unsigned initial_size);
@@ -37,6 +38,9 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
+bool copy_in(void* dst, const void* usrc, size_t size);
+bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len);
+static struct lock filesys_lock;
 int exec(const char* cmd_line);
 pid_t fork(const char* thread_name, struct intr_frame* if_);
 int wait(pid_t pid);
@@ -51,6 +55,7 @@ void syscall_init(void) {
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
   write_msr(MSR_SYSCALL_MASK,
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+  lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -145,26 +150,8 @@ bool create(const char* file, unsigned initial_size) {
   char fname[NAME_MAX + 1];
   size_t fname_len = 0;
 
-  for (;;) {
-    const char* u = file + fname_len;
-
-    if (!is_user_vaddr(u)) {
-      exit(-1);
-    }
-
-    uint8_t* k = pml4_get_page(thread_current()->pml4, u);
-    if (k == NULL) {
-      exit(-1);
-    }
-
-    uint8_t b = *k;
-    if (b == '\0') break;
-
-    if (fname_len >= NAME_MAX) {
-      return false;
-    }
-
-    fname[fname_len++] = (char)b;
+  if (!copy_in_string(fname, file, sizeof fname, &fname_len)) {
+    return false;
   }
 
   fname[fname_len] = '\0';
@@ -174,6 +161,7 @@ bool create(const char* file, unsigned initial_size) {
   }
 
   bool ok = filesys_create(fname, initial_size);
+
   return ok;
 }
 
@@ -185,26 +173,8 @@ bool remove(const char* file) {
   char fname[NAME_MAX + 1];
   size_t fname_len = 0;
 
-  for (;;) {
-    const char* u = file + fname_len;
-
-    if (!is_user_vaddr(u)) {
-      exit(-1);
-    }
-
-    uint8_t* k = pml4_get_page(thread_current()->pml4, u);
-    if (k == NULL) {
-      exit(-1);
-    }
-
-    uint8_t b = *k;
-    if (b == '\0') break;
-
-    if (fname_len >= NAME_MAX) {
-      return false;
-    }
-
-    fname[fname_len++] = (char)b;
+  if (!copy_in_string(fname, file, sizeof fname, &fname_len)) {
+    return false;
   }
 
   fname[fname_len] = '\0';
@@ -240,12 +210,13 @@ unsigned tell(int fd) {
 }
 
 int write(int fd, const void* buffer, unsigned size) {
+  const size_t CHUNK_SIZE = 4096;
   if ((size == 0) || (buffer == NULL)) return 0;
 
   // fd가 1이면 콘솔에 출력 (버퍼 할당 불필요)
   if (fd == 1) {
     // 큰 데이터는 청크 단위로 나누어 출력
-    const size_t CHUNK_SIZE = 4096;
+
     size_t remaining = size;
     size_t offset = 0;
 
@@ -277,7 +248,6 @@ int write(int fd, const void* buffer, unsigned size) {
     struct file* file = curr->fdt[fd];
     if (file == NULL) return -1;
 
-    const size_t CHUNK_SIZE = 4096;
     size_t remaining = size;
     size_t offset = 0;
     int total_written = 0;
@@ -287,12 +257,12 @@ int write(int fd, const void* buffer, unsigned size) {
 
       void* kbuff = palloc_get_page(PAL_ZERO);
       if (kbuff == NULL) {
-        break;
+        exit(-1);
       }
 
       if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
         palloc_free_page(kbuff);
-        break;
+        exit(-1);
       }
 
       int bytes_written = file_write(file, kbuff, chunk_size);
@@ -310,26 +280,6 @@ int write(int fd, const void* buffer, unsigned size) {
 
     return total_written;
   }
-}
-
-/* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
-   성공하면 true, 실패하면 false를 반환한다. */
-bool copy_in(void* dst, const void* usrc, size_t size) {
-  for (size_t i = 0; i < size; i++) {
-    const void* user_addr = (const char*)usrc + i;
-
-    if (!is_user_vaddr(user_addr)) {
-      return false;
-    }
-
-    void* kva = pml4_get_page(thread_current()->pml4, user_addr);
-    if (kva == NULL) {
-      return false;
-    }
-
-    ((char*)dst)[i] = *(char*)kva;
-  }
-  return true;
 }
 
 int read(int fd, void* buffer, unsigned size) {
@@ -379,48 +329,28 @@ int read(int fd, void* buffer, unsigned size) {
 }
 
 int open(const char* file) {
-  struct thread* curr = thread_current();
+  char kname[NAME_MAX + 1];
+  size_t len = 0;
 
-  if (!file) {
-    exit(-1);
-  }
-  if (!is_user_vaddr(file)) {
-    exit(-1);
-  }
-
-  // 사용자 문자열을 커널 공간으로 복사
-  char kernel_file[256];
-  int i = 0;
-  while (i < 255) {
-    if (!is_user_vaddr((void*)(file + i))) {
-      exit(-1);
-    }
-    if (!pml4_get_page(curr->pml4, (void*)(file + i))) {
-      exit(-1);
-    }
-
-    kernel_file[i] = file[i];
-
-    if (file[i] == '\0') {
-      break;
-    }
-    i++;
-  }
-
-  // 파일 열기
-  struct file* f = filesys_open(kernel_file);
-  if (!f) {
+  if (!copy_in_string(kname, file, sizeof kname, &len)) {
     return -1;
   }
 
-  // 파일 디스크립터 할당
-  int fd = 2;
-  while (fd < FDT_SIZE) {
+  kname[len] = '\0';
+
+  struct file* f = filesys_open(kname);
+
+  if (f == NULL) {
+    return -1;
+  }
+
+  struct thread* curr = thread_current();
+
+  for (int fd = 2; fd < FDT_SIZE; fd++) {
     if (curr->fdt[fd] == NULL) {
       curr->fdt[fd] = f;
       return fd;
     }
-    fd++;
   }
 
   file_close(f);
@@ -461,34 +391,74 @@ void close(int fd) {
 
 // 반환값이 의미없긴 한데 introduction에 맞춰서 int로 설정
 int exec(const char* cmd_line) {
-  struct thread* curr = thread_current();
-
-  if (!cmd_line) {
-    exit(-1);
-  }
-  if (!is_user_vaddr(cmd_line)) {
-    exit(-1);
-  }
-
   char kernel_file[256];
-  int i = 0;
-  while (i < 255) {
-    if (!is_user_vaddr((void*)(cmd_line + i))) {
-      exit(-1);
-    }
-    if (!pml4_get_page(curr->pml4, (void*)(cmd_line + i))) {
-      exit(-1);
-    }
+  size_t i = 0;
 
-    kernel_file[i] = cmd_line[i];
-
-    if (cmd_line[i] == '\0') {
-      break;
-    }
-    i++;
+  if (!copy_in_string(kernel_file, cmd_line, sizeof kernel_file, &i)) {
+    exit(-1);
   }
+  kernel_file[i] = '\0';
 
   process_exec(kernel_file);
+}
+
+/* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
+   성공하면 true, 실패하면 false를 반환한다. */
+bool copy_in(void* dst, const void* usrc, size_t size) {
+  for (size_t i = 0; i < size; i++) {
+    const void* user_addr = (const char*)usrc + i;
+
+    if (!is_user_vaddr(user_addr)) {
+      return false;
+    }
+
+    void* kva = pml4_get_page(thread_current()->pml4, user_addr);
+    if (kva == NULL) {
+      return false;
+    }
+
+    ((char*)dst)[i] = *(char*)kva;
+  }
+  return true;
+}
+
+/*
+ * copy_in_string()
+ * - 유저 포인터 us가 가리키는 NUL-종단 문자열을 커널 버퍼 dst로 복사한다.
+ * - 페이지 경계마다 검증(pml4_get_page)하며 잘못된 포인터/매핑 실패 시
+ * exit(-1).
+ * - dst_sz 바이트 안에서 반드시 '\0'을 만나야 하며, 만나지 못하면 false를
+ * 반환(과다 길이).
+ * - 성공 시 true를 반환하고, out_len가 비-NULL이면 NUL 제외 길이를 기록한다.
+ * - 64비트 주소 체계를 가정한다.
+ */
+bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
+  /* (1) 파라미터 가드 */
+  if (dst == NULL || dst_sz == 0) return false;
+  if (us == NULL || !is_user_vaddr(us)) exit(-1);  // bad ptr → 종료
+
+  struct thread* curr = thread_current();
+  void* pml4 = curr->pml4;
+
+  /* (2) 바이트 단위 복사 */
+  for (size_t i = 0; i < dst_sz; i++) {
+    const char* up = (const char*)us + i;
+
+    if (!is_user_vaddr(up)) exit(-1);  // 커널 경계 넘어가면 종료
+    char* kva = pml4_get_page(pml4, up);
+    if (kva == NULL) exit(-1);  // 미매핑 → 종료
+
+    char c = *kva;  // 안전한 한 바이트 로드
+    dst[i] = c;     // 커널 버퍼에 기록
+
+    if (c == '\0') {              // 문자열 끝
+      if (out_len) *out_len = i;  // 널 전까지 길이
+      return true;
+    }
+  }
+
+  /* (3) 버퍼 초과: NUL을 못 만남 */
+  return false;
 }
 
 pid_t fork(const char* thread_name, struct intr_frame* if_) {
@@ -516,6 +486,4 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   return child_pid;
 }
 
-int wait(pid_t pid) {
-  return process_wait(pid);
-}
+int wait(pid_t pid) { return process_wait(pid); }
