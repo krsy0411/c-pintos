@@ -220,36 +220,76 @@ unsigned tell(int fd) {
 }
 
 int write(int fd, const void* buffer, unsigned size) {
+  const size_t CHUNK_SIZE = 4096;
   if ((size == 0) || (buffer == NULL)) return 0;
 
-  void* kbuff = palloc_get_page(PAL_ZERO);
-  if (kbuff == NULL) {
-    exit(-1);
-  }
-
-  if (!copy_in(kbuff, buffer, size)) {
-    palloc_free_page(kbuff);
-    exit(-1);
-  }
-
-  int bytes_written = 0;
-
+  // fd가 1이면 콘솔에 출력 (버퍼 할당 불필요)
   if (fd == 1) {
-    putbuf(kbuff, size);
-    bytes_written = size;
+    // 큰 데이터는 청크 단위로 나누어 출력
+
+    size_t remaining = size;
+    size_t offset = 0;
+
+    while (remaining > 0) {
+      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+
+      void* kbuff = palloc_get_page(PAL_ZERO);
+      if (kbuff == NULL) {
+        exit(-1);
+      }
+
+      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
+        palloc_free_page(kbuff);
+        exit(-1);
+      }
+
+      putbuf(kbuff, chunk_size);
+      palloc_free_page(kbuff);
+
+      offset += chunk_size;
+      remaining -= chunk_size;
+    }
+    return size;
   } else {
+    // 파일 쓰기도 동일하게 청크 단위로 처리
     if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
 
     struct thread* curr = thread_current();
     struct file* file = curr->fdt[fd];
-
     if (file == NULL) return -1;
 
+    size_t remaining = size;
+    size_t offset = 0;
+    int total_written = 0;
 
-    bytes_written = file_write(file, kbuff, size);
+    while (remaining > 0) {
+      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+
+      void* kbuff = palloc_get_page(PAL_ZERO);
+      if (kbuff == NULL) {
+        exit(-1);
+      }
+
+      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
+        palloc_free_page(kbuff);
+        exit(-1);
+      }
+
+      int bytes_written = file_write(file, kbuff, chunk_size);
+      palloc_free_page(kbuff);
+
+      if (bytes_written != chunk_size) {
+        total_written += bytes_written;
+        break;
+      }
+
+      total_written += bytes_written;
+      offset += chunk_size;
+      remaining -= chunk_size;
+    }
+
+    return total_written;
   }
-  palloc_free_page(kbuff);
-  return bytes_written;
 }
 
 int read(int fd, void* buffer, unsigned size) {
@@ -456,10 +496,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
   return child_pid;
 }
 
-
-int wait(pid_t pid) {
-  return process_wait(pid);
-}
+int wait(pid_t pid) { return process_wait(pid); }
 
 int dup2(int oldfd, int newfd) {
   if (oldfd < 0 || oldfd >= FDT_SIZE) return -1;
