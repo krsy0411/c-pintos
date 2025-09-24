@@ -52,7 +52,7 @@ int dup2(int oldfd, int newfd);
 
 void syscall_init(void) {
   write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 | ((uint64_t)SEL_KCSEG)
-                                                               << 32);
+                      << 32);
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
   write_msr(MSR_SYSCALL_MASK,
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
@@ -184,9 +184,6 @@ bool remove(const char* file) {
     return false;
   }
 
-    fname[fname_len++] = (char)b;
-  }
-
   fname[fname_len] = '\0';
 
   if (fname_len == 0) {
@@ -220,11 +217,16 @@ unsigned tell(int fd) {
 }
 
 int write(int fd, const void* buffer, unsigned size) {
-  const size_t CHUNK_SIZE = 4096;
+  if (fd < 0 || fd >= FDT_SIZE) return -1;
   if ((size == 0) || (buffer == NULL)) return 0;
 
-  // fd가 1이면 콘솔에 출력 (버퍼 할당 불필요)
-  if (fd == 1) {
+  const size_t CHUNK_SIZE = 4096;
+
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
+  if (file == NULL || file == STDIN_MARKER) return -1;
+
+  if (file == STDOUT_MARKER) {
     // 큰 데이터는 청크 단위로 나누어 출력
 
     size_t remaining = size;
@@ -250,52 +252,49 @@ int write(int fd, const void* buffer, unsigned size) {
       remaining -= chunk_size;
     }
     return size;
-  } else {
-    // 파일 쓰기도 동일하게 청크 단위로 처리
-    if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
+  }
+  size_t remaining = size;
+  size_t offset = 0;
+  int total_written = 0;
 
-    struct thread* curr = thread_current();
-    struct file* file = curr->fdt[fd];
-    if (file == NULL) return -1;
+  while (remaining > 0) {
+    size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
 
-    size_t remaining = size;
-    size_t offset = 0;
-    int total_written = 0;
-
-    while (remaining > 0) {
-      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
-
-      void* kbuff = palloc_get_page(PAL_ZERO);
-      if (kbuff == NULL) {
-        exit(-1);
-      }
-
-      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
-        palloc_free_page(kbuff);
-        exit(-1);
-      }
-
-      int bytes_written = file_write(file, kbuff, chunk_size);
-      palloc_free_page(kbuff);
-
-      if (bytes_written != chunk_size) {
-        total_written += bytes_written;
-        break;
-      }
-
-      total_written += bytes_written;
-      offset += chunk_size;
-      remaining -= chunk_size;
+    void* kbuff = palloc_get_page(PAL_ZERO);
+    if (kbuff == NULL) {
+      exit(-1);
     }
 
-    return total_written;
+    if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
+      palloc_free_page(kbuff);
+      exit(-1);
+    }
+
+    int bytes_written = file_write(file, kbuff, chunk_size);
+    palloc_free_page(kbuff);
+
+    if (bytes_written != chunk_size) {
+      total_written += bytes_written;
+      break;
+    }
+
+    total_written += bytes_written;
+    offset += chunk_size;
+    remaining -= chunk_size;
   }
+
+  return total_written;
 }
 
 int read(int fd, void* buffer, unsigned size) {
+  if (!fd || fd < 0 || fd >= FDT_SIZE) return -1;
   int bytes_read = 0;
+  struct thread* curr = thread_current();
+  struct file* file = curr->fdt[fd];
 
-  if (fd == 0) {
+  if (file == NULL || file == STDOUT_MARKER) return -1;
+
+  if (file == STDIN_MARKER) {
     // stdin에서 읽기 전에 버퍼 유효성 검사
     for (unsigned i = 0; i < size; i++) {
       if (!is_user_vaddr((uint8_t*)buffer + i)) {
@@ -313,7 +312,6 @@ int read(int fd, void* buffer, unsigned size) {
     bytes_read = size;
   } else {
     // 잘못된 fd인 경우 리턴
-    if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
 
     // 버퍼가 유효한 사용자 주소인지 확인
     for (unsigned i = 0; i < size; i++) {
@@ -324,12 +322,6 @@ int read(int fd, void* buffer, unsigned size) {
         exit(-1);
       }
     }
-
-    // fdt에서 fd에 해당하는 파일 구조체 얻기
-    struct thread* curr = thread_current();
-    struct file* file = curr->fdt[fd];
-
-    if (file == NULL) return -1;
 
     // file_read() 함수 호출
     bytes_read = file_read(file, buffer, size);
@@ -379,12 +371,10 @@ int filesize(int fd) {
 }
 
 void close(int fd) {
-  // fd 유효성 검사 - stdin(0), stdout(1)은 닫으면 안됨
   if (fd < 2 || fd >= FDT_SIZE) {
     return;
   }
 
-  // 파일 구조체 가져오기
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
@@ -392,10 +382,15 @@ void close(int fd) {
     return;
   }
 
-  // 실제 파일 닫기
-  file_close(file);
+  if (file == STDIN_MARKER || file == STDOUT_MARKER) {
+    curr->fdt[fd] = NULL;
+    return;
+  }
 
-  // fdt에서 제거
+  if (file_should_close(file)) {
+    file_close(file);
+  }
+
   curr->fdt[fd] = NULL;
 }
 
@@ -445,7 +440,7 @@ bool copy_in(void* dst, const void* usrc, size_t size) {
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   /* (1) 파라미터 가드 */
   if (dst == NULL || dst_sz == 0) return false;
-  if (us == NULL || !is_user_vaddr(us)) exit(-1);  // bad ptr → 종료
+  if (us == NULL || !is_user_vaddr(us)) exit(-1); // bad ptr → 종료
 
   struct thread* curr = thread_current();
   void* pml4 = curr->pml4;
@@ -454,15 +449,16 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   for (size_t i = 0; i < dst_sz; i++) {
     const char* up = (const char*)us + i;
 
-    if (!is_user_vaddr(up)) exit(-1);  // 커널 경계 넘어가면 종료
+    if (!is_user_vaddr(up)) exit(-1); // 커널 경계 넘어가면 종료
     char* kva = pml4_get_page(pml4, up);
-    if (kva == NULL) exit(-1);  // 미매핑 → 종료
+    if (kva == NULL) exit(-1); // 미매핑 → 종료
 
-    char c = *kva;  // 안전한 한 바이트 로드
-    dst[i] = c;     // 커널 버퍼에 기록
+    char c = *kva; // 안전한 한 바이트 로드
+    dst[i] = c;    // 커널 버퍼에 기록
 
-    if (c == '\0') {              // 문자열 끝
-      if (out_len) *out_len = i;  // 널 전까지 길이
+    if (c == '\0') {
+      // 문자열 끝
+      if (out_len) *out_len = i; // 널 전까지 길이
       return true;
     }
   }
@@ -480,7 +476,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
-  int MAX_LEN = 16;  // 최대 길이 제한(16자)
+  int MAX_LEN = 16; // 최대 길이 제한(16자)
   while (len < MAX_LEN) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
@@ -503,14 +499,16 @@ int dup2(int oldfd, int newfd) {
   if (newfd < 0 || newfd >= FDT_SIZE) return -1;
 
   if (oldfd == newfd) return newfd;
-  struct thread *curr = thread_current();
+  struct thread* curr = thread_current();
 
   if (curr->fdt[newfd] != NULL) close(newfd);
 
-  struct file *file = curr->fdt[oldfd];
-
+  struct file* file = curr->fdt[oldfd];
   curr->fdt[newfd] = file;
-  file_add_ref(file);
+
+  if (file != NULL && file != STDIN_MARKER && file != STDOUT_MARKER) {
+    file_add_ref(file);
+  }
 
   return newfd;
 }
