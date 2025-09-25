@@ -415,12 +415,8 @@ int process_wait(tid_t child_tid) {
     return -1;
   }
 
-  // 부모가 wait 호출 전 자식이 exit 하고 나간 경우 처리
-  if (child->exit_sema.value != 0) {
-    sema_down(&child->exit_sema);
-  }
+  // 2. sema_down으로 기다리기
   sema_down(&child->wait_sema);
-
 
   int status = child->exit_status;
   list_remove(&child->child_elem);
