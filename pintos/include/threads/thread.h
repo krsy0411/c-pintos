@@ -142,7 +142,9 @@ struct thread {
 
 extern struct list sleep_list;  // sleep 상태인 스레드들을 담는 리스트
 
-#define FDT_SIZE 128  // 파일 디스크립터 테이블 최대 크기
+#define FDT_SIZE 512  // 파일 디스크립터 테이블 최대 크기
+#define STDIN_MARKER  ((struct file*)1)
+#define STDOUT_MARKER ((struct file*)2)
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

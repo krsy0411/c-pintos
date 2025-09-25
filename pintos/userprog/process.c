@@ -40,6 +40,8 @@ static void process_init(void) {
   if (current->fdt == NULL) {
     PANIC("fdt allocation failed");
   }
+  current->fdt[0] = STDIN_MARKER;
+  current->fdt[1] = STDOUT_MARKER;
 #endif
 }
 
@@ -237,6 +239,11 @@ static void __do_fork(void *aux) {
     struct file *file = parent->fdt[fd];
     if (file == NULL) continue;
 
+    if (file == STDIN_MARKER || file == STDOUT_MARKER) {
+      current->fdt[fd] = file;
+      continue;
+    }
+
     struct file *new_file;
     // ✅ 모든 파일을 동일한 방식으로 복사
     new_file = file_duplicate(file);
@@ -426,9 +433,9 @@ void process_exit(void) {
 #ifdef USERPROG
   // fdt 할당 해제
   if (curr->fdt != NULL) {
-    for (int i = 2; i < FDT_SIZE; i++) {
+    for (int i = 0; i < FDT_SIZE; i++) {
       if (curr->fdt[i] != NULL) {
-        file_close(curr->fdt[i]);
+        close(i);
       }
     }
     palloc_free_page(curr->fdt);
@@ -444,6 +451,12 @@ void process_exit(void) {
   sema_up(&curr->wait_sema);
 
   sema_down(&curr->exit_sema);
+
+  while (!list_empty(&curr->child_list)) {
+    struct list_elem *e = list_begin(&curr->child_list);
+    struct thread *t = list_entry(e, struct thread, child_elem);
+    list_remove(&t->child_elem);
+  }
 
   process_cleanup();
 }

@@ -27,4 +27,8 @@ void file_seek (struct file *, off_t);
 off_t file_tell (struct file *);
 off_t file_length (struct file *);
 
+void file_add_ref(struct file *);
+int file_get_ref_count(struct file *);
+int file_should_close(struct file *);
+
 #endif /* filesys/file.h */
