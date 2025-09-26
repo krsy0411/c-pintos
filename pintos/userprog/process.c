@@ -225,12 +225,6 @@ static void __do_fork(void* aux) {
   if (!pml4_for_each(parent->pml4, duplicate_pte, parent)) goto error;
 #endif
 
-  /* TODO: Your code goes here.
-   * TODO: Hint) To duplicate the file object, use `file_duplicate`
-   * TODO:       in include/filesys/file.h. Note that parent should not return
-   * TODO:       from the fork() until this function successfully duplicates
-   * TODO:       the resources of parent.*/
-
   process_init();
 
   /* 파일 디스크립터 테이블 복제 */
@@ -238,9 +232,24 @@ static void __do_fork(void* aux) {
     struct file* file = parent->fdt[fd];
     if (file == NULL) continue;
 
-    struct file* new_file;
-    // ✅ 모든 파일을 동일한 방식으로 복사
-    new_file = file_duplicate(file);
+    if (file == STDIN_MARKER || file == STDOUT_MARKER) {
+      current->fdt[fd] = file;
+      continue;
+    }
+
+    struct file* new_file = NULL;
+
+    for (int prev_fd = 0; prev_fd < fd; prev_fd++) {
+      if (parent->fdt[prev_fd] == file) {
+        new_file = current->fdt[prev_fd];
+        break;
+      }
+    }
+
+    if (new_file == NULL) {
+      new_file = file_duplicate(file);
+    }
+
     if (new_file == NULL) goto error;
 
     current->fdt[fd] = new_file;
