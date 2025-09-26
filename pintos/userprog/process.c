@@ -16,7 +16,6 @@
 #include "threads/interrupt.h"
 #include "threads/mmu.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
@@ -41,6 +40,8 @@ static void process_init(void) {
   if (current->fdt == NULL) {
     PANIC("fdt allocation failed");
   }
+  current->fdt[0] = STDIN_MARKER;
+  current->fdt[1] = STDOUT_MARKER;
 #endif
 }
 
@@ -229,27 +230,25 @@ static void __do_fork(void* aux) {
 
   /* 파일 디스크립터 테이블 복제 */
   for (int fd = 0; fd < FDT_SIZE; fd++) {
-    struct file* file = parent->fdt[fd];
-    if (file == NULL) continue;
+    struct file* parent_file = parent->fdt[fd];
+    if (parent_file == NULL) continue;
 
-    if (file == STDIN_MARKER || file == STDOUT_MARKER) {
-      current->fdt[fd] = file;
+    if (parent_file == STDIN_MARKER || parent_file == STDOUT_MARKER) {
+      current->fdt[fd] = parent_file;
       continue;
     }
 
     struct file* new_file = NULL;
-
     for (int prev_fd = 0; prev_fd < fd; prev_fd++) {
-      if (parent->fdt[prev_fd] == file) {
-        new_file = current->fdt[prev_fd];
+      if (parent_file == parent->fdt[prev_fd]) {
+        new_file = parent->fdt[prev_fd];
         break;
       }
     }
 
     if (new_file == NULL) {
-      new_file = file_duplicate(file);
+      new_file = file_duplicate(parent_file);
     }
-
     if (new_file == NULL) goto error;
 
     current->fdt[fd] = new_file;
@@ -410,6 +409,7 @@ int process_wait(tid_t child_tid) {
     struct thread* t = list_entry(e, struct thread, child_elem);
     if (t->tid == child_tid) {
       child = t;
+      list_remove(&child->child_elem);
       break;
     }
   }
@@ -421,9 +421,8 @@ int process_wait(tid_t child_tid) {
   sema_down(&child->wait_sema);
 
   int status = child->exit_status;
-  list_remove(&child->child_elem);
 
-  // sema_up(&curr->exit_sema);
+  sema_up(&child->exit_sema);
 
   // 3. exit_status 반환
   return status;
@@ -435,25 +434,30 @@ void process_exit(void) {
 #ifdef USERPROG
   // fdt 할당 해제
   if (curr->fdt != NULL) {
-    for (int i = 2; i < FDT_SIZE; i++) {
+    for (int i = 0; i < FDT_SIZE; i++) {
       if (curr->fdt[i] != NULL) {
-        file_close(curr->fdt[i]);
+        close(i);
       }
     }
     palloc_free_page(curr->fdt);
     curr->fdt = NULL;
   }
+
+  /* 프로세스 종료와 함께 실행 중인 파일 정보 해제 */
+  if (curr->running_file != NULL) {
+    file_close(curr->running_file);
+    curr->running_file = NULL;
+  }
 #endif
   sema_up(&curr->wait_sema);
 
-  struct list_elem* e = NULL;
-  for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-    struct thread* t = list_entry(e, struct thread, all_elem);
-    if (t->tid == curr->parent_tid) {
-      t->exit_status = curr->exit_status;
-      // sema_down(&t->exit_sema);
-      break;
-    }
+  sema_down(&curr->exit_sema);
+
+  while (!list_empty(&curr->child_list)) {
+    struct list_elem* e = list_begin(&curr->child_list);
+    struct thread* t = list_entry(e, struct thread, child_elem);
+    sema_up(&t->exit_sema);
+    list_remove(&t->child_elem);
   }
 
   process_cleanup();
@@ -578,6 +582,10 @@ static bool load(const char* file_name, struct intr_frame* if_) {
     goto done;
   }
 
+  /* 실행 중인 파일 쓰기 금지 & 스레드에 정보 저장 */
+  file_deny_write(file);
+  t->running_file = file;
+
   /* Read and verify executable header. */
   if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
       memcmp(ehdr.e_ident, "\177ELF\2\1\1", 7) || ehdr.e_type != 2 ||
@@ -651,7 +659,13 @@ static bool load(const char* file_name, struct intr_frame* if_) {
 
 done:
   /* We arrive here whether the load is successful or not. */
-  file_close(file);
+  /* 로드 실패 시에만 파일을 닫음 */
+  if ((!success) && (file != NULL)) {
+    file_allow_write(file);
+    file_close(file);
+    t->running_file = NULL;
+  }
+
   return success;
 }
 
