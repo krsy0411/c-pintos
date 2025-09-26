@@ -505,7 +505,7 @@ int dup2(int oldfd, int newfd) {
   if (curr->fdt[newfd] != NULL) close(newfd);
 
   struct file* file = curr->fdt[oldfd];
-    if (file == NULL) return -1;
+  if (file == NULL) return -1;
 
   curr->fdt[newfd] = file;
 
