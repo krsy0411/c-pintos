@@ -240,9 +240,16 @@ static void __do_fork(void* aux) {
 
     struct file* new_file = NULL;
     for (int prev_fd = 0; prev_fd < fd; prev_fd++) {
-      if (parent_file == parent->fdt[prev_fd]) {
-        new_file = parent->fdt[prev_fd];
-        break;
+      // parent에서 같은 파일을 가리키고 있었는지 확인
+      if (parent->fdt[prev_fd] == parent_file) {
+        // child에서도 이미 설정되어 있는지 확인
+        if (current->fdt[prev_fd] != NULL &&
+            current->fdt[prev_fd] != STDIN_MARKER &&
+            current->fdt[prev_fd] != STDOUT_MARKER) {
+          new_file = current->fdt[prev_fd];
+          file_add_ref(new_file);
+          break;
+        }
       }
     }
 
