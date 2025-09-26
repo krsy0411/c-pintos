@@ -52,7 +52,7 @@ int dup2(int oldfd, int newfd);
 
 void syscall_init(void) {
   write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 | ((uint64_t)SEL_KCSEG)
-                                                               << 32);
+                      << 32);
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
   write_msr(MSR_SYSCALL_MASK,
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
@@ -440,7 +440,7 @@ bool copy_in(void* dst, const void* usrc, size_t size) {
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   /* (1) 파라미터 가드 */
   if (dst == NULL || dst_sz == 0) return false;
-  if (us == NULL || !is_user_vaddr(us)) exit(-1);  // bad ptr → 종료
+  if (us == NULL || !is_user_vaddr(us)) exit(-1); // bad ptr → 종료
 
   struct thread* curr = thread_current();
   void* pml4 = curr->pml4;
@@ -449,16 +449,16 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   for (size_t i = 0; i < dst_sz; i++) {
     const char* up = (const char*)us + i;
 
-    if (!is_user_vaddr(up)) exit(-1);  // 커널 경계 넘어가면 종료
+    if (!is_user_vaddr(up)) exit(-1); // 커널 경계 넘어가면 종료
     char* kva = pml4_get_page(pml4, up);
-    if (kva == NULL) exit(-1);  // 미매핑 → 종료
+    if (kva == NULL) exit(-1); // 미매핑 → 종료
 
-    char c = *kva;  // 안전한 한 바이트 로드
-    dst[i] = c;     // 커널 버퍼에 기록
+    char c = *kva; // 안전한 한 바이트 로드
+    dst[i] = c;    // 커널 버퍼에 기록
 
     if (c == '\0') {
       // 문자열 끝
-      if (out_len) *out_len = i;  // 널 전까지 길이
+      if (out_len) *out_len = i; // 널 전까지 길이
       return true;
     }
   }
@@ -476,7 +476,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
-  int MAX_LEN = 16;  // 최대 길이 제한(16자)
+  int MAX_LEN = 16; // 최대 길이 제한(16자)
   while (len < MAX_LEN) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
@@ -498,15 +498,18 @@ int dup2(int oldfd, int newfd) {
   if (oldfd < 0 || oldfd >= FDT_SIZE) return -1;
   if (newfd < 0 || newfd >= FDT_SIZE) return -1;
 
+
   if (oldfd == newfd) return newfd;
   struct thread* curr = thread_current();
 
   if (curr->fdt[newfd] != NULL) close(newfd);
 
   struct file* file = curr->fdt[oldfd];
+    if (file == NULL) return -1;
+
   curr->fdt[newfd] = file;
 
-  if (file != NULL && file != STDIN_MARKER && file != STDOUT_MARKER) {
+  if (file != STDIN_MARKER && file != STDOUT_MARKER) {
     file_add_ref(file);
   }
 
