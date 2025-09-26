@@ -504,9 +504,11 @@ int dup2(int oldfd, int newfd) {
   if (curr->fdt[newfd] != NULL) close(newfd);
 
   struct file* file = curr->fdt[oldfd];
+  if (file == NULL) return -1;
+
   curr->fdt[newfd] = file;
 
-  if (file != NULL && file != STDIN_MARKER && file != STDOUT_MARKER) {
+  if (file != STDIN_MARKER && file != STDOUT_MARKER) {
     file_add_ref(file);
   }
 
