@@ -16,7 +16,6 @@
 #include "threads/interrupt.h"
 #include "threads/mmu.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/gdt.h"
@@ -417,6 +416,7 @@ int process_wait(tid_t child_tid) {
     struct thread* t = list_entry(e, struct thread, child_elem);
     if (t->tid == child_tid) {
       child = t;
+      list_remove(&child->child_elem);
       break;
     }
   }
@@ -428,7 +428,6 @@ int process_wait(tid_t child_tid) {
   sema_down(&child->wait_sema);
 
   int status = child->exit_status;
-  list_remove(&child->child_elem);
 
   sema_up(&child->exit_sema);
 
