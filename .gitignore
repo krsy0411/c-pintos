@@ -46,3 +46,4 @@ CMakeLists.txt
 **/threads/.test_status
 **/vm/.test_status
 **/filesys/.test_status
+CLAUDE.md
