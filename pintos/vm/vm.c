@@ -69,8 +69,13 @@ struct page *spt_find_page(struct supplemental_page_table *spt UNUSED,
 }
 
 /* Insert PAGE into spt with validation. */
+/* 가상 주소에 해당하는 페이지의 메타데이터를 SPT에 등록
+ * 이를 통해 나중에 해당 주소에서 페이지 폴트가 발생했을 때
+ * 이 페이지를 어디서 찾아야 하는지(ex 파일 시스템, 스왑 디스크) 알 수 있게 됨*/
+
 bool spt_insert_page(struct supplemental_page_table *spt UNUSED,
                      struct page *page UNUSED) {
+  // hash_insert 가 성공하면 NULL 반환
   return hash_insert(&spt->spt_hash, &page->hash_elem) == NULL;
 }
 
