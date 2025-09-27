@@ -75,8 +75,21 @@ struct page *spt_find_page(struct supplemental_page_table *spt UNUSED,
 
 bool spt_insert_page(struct supplemental_page_table *spt UNUSED,
                      struct page *page UNUSED) {
-  // hash_insert 가 성공하면 NULL 반환
-  return hash_insert(&spt->spt_hash, &page->hash_elem) == NULL;
+  // page의 가상 주소가 spt에 이미 존재하는지 확인
+  // spt_find_page로 해당 주소의 page를 찾으면 그 page의 포인터를, 찾지 못하면
+  // NULL을 반환
+
+  if (spt_find_page(spt, page->va) != NULL) {
+    // 해당 가상 주소에 매핑된 페이지가 존재하므로
+    // 중복 삽입을 방지하고 false반환
+    return false;
+  }
+
+  // 존재 하지 않는 경우만 해시테이블에 insert
+  hash_insert(&spt->spt_hash, &page->hash_elem);
+
+  // insert 성공 했으므로 true 반환
+  return true;
 }
 
 void spt_remove_page(struct supplemental_page_table *spt, struct page *page) {
