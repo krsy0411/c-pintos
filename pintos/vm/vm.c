@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 
+#include "kernel/hash.h"
 #include "threads/malloc.h"
 #include "vm/inspect.h"
 
@@ -68,12 +69,27 @@ struct page *spt_find_page(struct supplemental_page_table *spt UNUSED,
 }
 
 /* Insert PAGE into spt with validation. */
+/* 가상 주소에 해당하는 페이지의 메타데이터를 SPT에 등록
+ * 이를 통해 나중에 해당 주소에서 페이지 폴트가 발생했을 때
+ * 이 페이지를 어디서 찾아야 하는지(ex 파일 시스템, 스왑 디스크) 알 수 있게 됨*/
+
 bool spt_insert_page(struct supplemental_page_table *spt UNUSED,
                      struct page *page UNUSED) {
-  int succ = false;
-  /* TODO: Fill this function. */
+  // page의 가상 주소가 spt에 이미 존재하는지 확인
+  // spt_find_page로 해당 주소의 page를 찾으면 그 page의 포인터를, 찾지 못하면
+  // NULL을 반환
 
-  return succ;
+  if (spt_find_page(spt, page->va) != NULL) {
+    // 해당 가상 주소에 매핑된 페이지가 존재하므로
+    // 중복 삽입을 방지하고 false반환
+    return false;
+  }
+
+  // 존재 하지 않는 경우만 해시테이블에 insert
+  hash_insert(&spt->spt_hash, &page->hash_elem);
+
+  // insert 성공 했으므로 true 반환
+  return true;
 }
 
 void spt_remove_page(struct supplemental_page_table *spt, struct page *page) {
