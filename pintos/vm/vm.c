@@ -58,13 +58,48 @@ err:
   return false;
 }
 
-/* Find VA from spt and return page. On error, return NULL. */
+/*
+ * supplemental_page_table(spt)에서 주어진 가상 주소(va)에 해당하는 페이지
+ * 정보를 찾아 반환합니다.
+ * - spt_hash 해시 테이블을 이용해 va를 키로 검색합니다.
+ * - 내부적으로 임시 page 구조체를 만들어 va만 채운 뒤, hash_find로 검색합니다.
+ * - 검색 결과가 있으면 해당 struct page 포인터를 반환하고, 없으면 NULL을
+ * 반환합니다.
+ * - 인자(spt, va)가 NULL이면 바로 NULL 반환.
+ * - 페이지 폴트 처리, 페이지 할당 여부 확인 등에서 사용됩니다.
+ */
 struct page *spt_find_page(struct supplemental_page_table *spt UNUSED,
                            void *va UNUSED) {
-  struct page *page = NULL;
-  /* TODO: Fill this function. */
+  /* 인자 검증 : 에러시 NULL 반환 */
+  if (spt == NULL) return NULL;
+  if (va == NULL) return NULL;
 
-  return page;
+  struct page temp_page;  // hash_find용 임시 페이지
+  temp_page.va = va;
+
+  /* spt에서 va에 해당하는 페이지 찾기 */
+  struct hash_elem *e = hash_find(&spt->spt_hash, &temp_page.hash_elem);
+  if (e == NULL) return NULL;
+
+  /* hash_find 결과가 있으면 해당 struct page 포인터를 반환
+    hash_elem에서 struct page 구조체를 얻기 위해 hash_entry 매크로 사용
+
+    struct page의 메모리 구조:
+      0x1000┌─────────────────┐ ← page 구조체 시작
+            │ operations      │
+      0x1008├─────────────────┤
+            │ va              │
+      0x1010├─────────────────┤
+            │ frame           │
+      0x1018├─────────────────┤ ← hash_elem 위치
+            │ hash_elem       │
+      0x1020├─────────────────┤
+            │ union { ... }   │
+            └─────────────────┘
+
+    해당하는 page가 없으면 NULL 반환
+   */
+  return hash_entry(e, struct page, hash_elem);
 }
 
 /* Insert PAGE into spt with validation. */
