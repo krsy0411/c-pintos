@@ -13,7 +13,6 @@ void vm_init(void) {
   vm_anon_init();
   vm_file_init();
 
-  list_init(&frame_table);  // 초기화
 #ifdef EFILESYS
   pagecache_init();
 #endif
@@ -36,7 +35,10 @@ static struct frame *vm_get_victim(void);
 static bool vm_do_claim_page(struct page *page);
 static struct frame *vm_evict_frame(void);
 
-static list frame_table;
+/*
+  현재 할당된 물리 프레임의 상태를 추적 하기 위한 자료 구조 선언
+  Swap이 필요할 때 이 테이블을 순회하여 희생양 프레임을 결정함
+*/
 
 bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
                                     bool writable, vm_initializer *init,
@@ -104,17 +106,10 @@ static struct frame *vm_get_frame(void) {
 
   // physical page 관리할 frame 구조체를 위해 메모리 할당
   struct frame *frame = malloc(sizeof(struct frame));
-  // 할당 실패할 경우
-  if (frame == NULL) {
-    palloc_free_page(kva);
-    // 성공적으로 할당 받았던 페이지를 반납하여 누수 방지
-    return NULL;
-  }
 
-  frame->kva = kva;
+  ASSERT(frame != NULL);  // 할당 성공 했는지 체크
+  frame->kva = kva;       // frame member 초기화
   frame->page = NULL;
-
-  list_push_back(&frame_table, &frame->elem);
 
   return frame;
 }
