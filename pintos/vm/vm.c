@@ -12,6 +12,8 @@
 void vm_init(void) {
   vm_anon_init();
   vm_file_init();
+
+  list_init(&frame_table);  // 초기화
 #ifdef EFILESYS
   pagecache_init();
 #endif
@@ -33,6 +35,8 @@ enum vm_type page_get_type(struct page *page) {
 static struct frame *vm_get_victim(void);
 static bool vm_do_claim_page(struct page *page);
 static struct frame *vm_evict_frame(void);
+
+static list frame_table;
 
 bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
                                     bool writable, vm_initializer *init,
@@ -89,10 +93,29 @@ static struct frame *vm_evict_frame(void) {
 }
 
 static struct frame *vm_get_frame(void) {
-  struct frame *frame = NULL;
-  /* TODO: Fill this function. */
-  ASSERT(frame != NULL);
-  ASSERT(frame->page == NULL);
+  // user pool에서 new physical page 할당 받아 커널 가상주소에 kva 저장됨
+  void *kva = palloc_get_page(PAL_USER);
+
+  // kva 가 NULL 이라면 사용자 풀에 더 이상 가용 페이지가 없다는 뜻
+  if (kva == NULL) {
+    // 나중에 스왑 아웃 로직 구현 필요
+    PANIC("todo");
+  }
+
+  // physical page 관리할 frame 구조체를 위해 메모리 할당
+  struct frame *frame = malloc(sizeof(struct frame));
+  // 할당 실패할 경우
+  if (frame == NULL) {
+    palloc_free_page(kva);
+    // 성공적으로 할당 받았던 페이지를 반납하여 누수 방지
+    return NULL;
+  }
+
+  frame->kva = kva;
+  frame->page = NULL;
+
+  list_push_back(&frame_table, &frame->elem);
+
   return frame;
 }
 
