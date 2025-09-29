@@ -88,6 +88,7 @@ static struct frame *vm_evict_frame(void) {
   return NULL;
 }
 
+/* 물리 프레임 할당 */
 static struct frame *vm_get_frame(void) {
   struct frame *frame = NULL;
   /* TODO: Fill this function. */
@@ -114,9 +115,20 @@ void vm_dealloc_page(struct page *page) {
   free(page);
 }
 
+/*
+ * va(가상 주소)로 해당 페이지 찾아서 vm_do_claim_page() 호출
+ * claim : va(가상주소)를 물리 프레임을 실제로 할당하고 페이지 테이블에 매핑
+ */
 bool vm_claim_page(void *va) {
-  struct page *page = NULL;
-  /* TODO: Fill this function */
+  ASSERT(va != NULL);
+
+  // va로 페이지 찾기
+  struct supplemental_page_table *spt = &thread_current()->spt;
+  struct page *page = spt_find_page(spt, va);
+
+  // 해당하는 페이지가 없으면 실패(false)
+  if (page == NULL) return false;
+
   return vm_do_claim_page(page);
 }
 
