@@ -733,6 +733,17 @@ static bool install_page(void* upage, void* kpage, bool writable);
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+
+/*
+ * [Project2: 프로그램 적재 방식 설명]
+ * 1. Project2에서는 프로그램 전체 크기만큼 메모리에 한 번에 적재합니다.
+ * 2. 즉, 지연 로딩(lazy loading) 방식이 아니며, 실행 파일의 모든 내용을 즉시
+ * 메모리에 올립니다.
+ * 3. 프로그램 크기만큼 페이지를 할당받고, 각 페이지에 파일 내용을 전부 읽어서
+ * 채워넣습니다. (남는 부분은 0으로 채움)
+ * 4. 이 방식은 프로그램 실행 시점에 전체 메모리 할당 및 적재가 이루어지므로,
+ * 페이지 폴트가 발생해도 추가 로딩이 없습니다.
+ */
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
                          uint32_t read_bytes, uint32_t zero_bytes,
                          bool writable) {
@@ -740,37 +751,39 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
   ASSERT(pg_ofs(upage) == 0);
   ASSERT(ofs % PGSIZE == 0);
 
+  // 파일 오프셋을 지정된 위치로 이동
   file_seek(file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) {
-    /* Do calculate how to fill this page.
-     * We will read PAGE_READ_BYTES bytes from FILE
-     * and zero the final PAGE_ZERO_BYTES bytes. */
+    // 이번 페이지에 실제로 파일에서 읽어올 바이트 수 계산
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    // 남은 공간은 0으로 채움
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-    /* Get a page of memory. */
+    // 사용자 영역에 페이지 할당 (프로그램 전체 크기만큼 반복)
     uint8_t* kpage = palloc_get_page(PAL_USER);
-    if (kpage == NULL) return false;
+    if (kpage == NULL) return false;  // 메모리 부족 시 실패
 
-    /* Load this page. */
+    // 파일에서 페이지 크기만큼 데이터 읽어오기
     if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes) {
       palloc_free_page(kpage);
-      return false;
+      return false;  // 파일 읽기 실패 시 페이지 반환
     }
+    // 남은 부분은 0으로 초기화 (BSS 등)
     memset(kpage + page_read_bytes, 0, page_zero_bytes);
 
-    /* Add the page to the process's address space. */
+    // 페이지 테이블에 매핑 (실제 사용자 주소 공간에 연결)
     if (!install_page(upage, kpage, writable)) {
       printf("fail\n");
       palloc_free_page(kpage);
-      return false;
+      return false;  // 매핑 실패 시 페이지 반환
     }
 
-    /* Advance. */
+    // 다음 페이지로 이동 (프로그램 전체를 모두 적재할 때까지 반복)
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     upage += PGSIZE;
   }
+  // 모든 페이지 적재가 끝나면 성공 반환
   return true;
 }
 
@@ -818,20 +831,20 @@ static bool lazy_load_segment(struct page* page, void* aux) {
   /* TODO: VA is available when calling this function. */
 }
 
-/* Loads a segment starting at offset OFS in FILE at address
- * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
- * memory are initialized, as follows:
- *
- * - READ_BYTES bytes at UPAGE must be read from FILE
- * starting at offset OFS.
- *
- * - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
- *
- * The pages initialized by this function must be writable by the
- * user process if WRITABLE is true, read-only otherwise.
- *
- * Return true if successful, false if a memory allocation error
- * or disk read error occurs. */
+/*
+ * [Project3: 지연 로딩(lazy loading) 기반 프로그램 적재 방식 설명]
+ * 1. Project3에서는 프로그램 전체를 한 번에 메모리에 올리지 않고, 페이지 폴트가
+ * 발생할 때마다 필요한 부분만 메모리에 적재합니다.
+ * 2. load_segment 함수는 실제로 파일 내용을 바로 읽어오지 않고, 각 가상 주소에
+ * 대해 "페이지 폴트 시 파일에서 읽어오도록" 정보를 등록합니다.
+ * 3. vm_alloc_page_with_initializer를 통해 각 페이지에 lazy_load_segment
+ * 핸들러와 파일 정보(aux)를 등록합니다.
+ * 4. 실제 파일 데이터는 해당 주소에 접근(페이지 폴트 발생)할 때
+ * lazy_load_segment에서 읽어와 메모리에 채워집니다.
+ * 5. 이 방식은 메모리 사용 효율이 높고, 프로그램 실행 시점에 꼭 필요한 페이지만
+ * 적재할 수 있습니다.
+ * 6. 즉, Project2와 달리 "필요할 때만" 메모리에 올리는 방식입니다.
+ */
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
                          uint32_t read_bytes, uint32_t zero_bytes,
                          bool writable) {
@@ -847,6 +860,8 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
     /* TODO: Set up aux to pass information to the lazy_load_segment. */
+    /* 실제 로딩을 하는건 아니고, 페이지 폴트 발생 시 로딩하도록 페이지만 등록
+     */
     void* aux = NULL;
     if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable,
                                         lazy_load_segment, aux))
