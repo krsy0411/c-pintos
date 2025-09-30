@@ -4,9 +4,9 @@
 
 #include "kernel/hash.h"
 #include "threads/malloc.h"
+#include "threads/mmu.h"
 #include "vm/inspect.h"
 #include "vm/vm.h"
-
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void vm_init(void) {
@@ -153,8 +153,17 @@ bool vm_claim_page(void *va) {
 static bool vm_do_claim_page(struct page *page) {
   struct frame *frame = vm_get_frame();
   frame->page = page;
-  page->frame = frame;
-  /* TODO: Insert page table entry to map page's VA to frame's PA. */
+  page->frame = frame; /* 서로 연결 */
+
+  struct thread *curr = thread_current();
+  if (!pml4_set_page(curr->pml4, page->va, frame->kva, page->writable)) {
+    frame->page = NULL;
+    page->frame = NULL;
+    palloc_free_page(frame->kva);
+    free(frame);
+    return false;
+  }
+
   return swap_in(page, frame->kva);
 }
 

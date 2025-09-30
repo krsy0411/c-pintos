@@ -49,6 +49,7 @@ struct page {
   /* Your implementation */
   /* Project_3 Memory Management */
   struct hash_elem hash_elem;
+  bool writable;
   /* Per-type data are binded into the union.
    * Each function automatically detects the current union */
   union {
