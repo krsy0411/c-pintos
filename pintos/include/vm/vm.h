@@ -49,6 +49,7 @@ struct page {
   /* Your implementation */
   /* Project_3 Memory Management */
   struct hash_elem hash_elem;
+  bool writable;
   /* Per-type data are binded into the union.
    * Each function automatically detects the current union */
   union {
@@ -112,4 +113,9 @@ void vm_dealloc_page(struct page *page);
 bool vm_claim_page(void *va);
 enum vm_type page_get_type(struct page *page);
 
+/*project_3*/
+uint64_t hash_hash_func(const struct hash_elem *e, void *aux);
+
+bool hash_less_func(const struct hash_elem *a, const struct hash_elem *b,
+                    void *aux);
 #endif /* VM_VM_H */
