@@ -170,8 +170,6 @@ static bool vm_do_claim_page(struct page *page) {
 /* Initialize new supplemental page table */
 void supplemental_page_table_init(struct supplemental_page_table *spt UNUSED) {
   /** Project 3-Memory Management */
-  hash_init(spt, hash_hash_func, hash_less_func, NULL);
-}
   hash_init(&spt->spt_hash, hash_hash_func, hash_less_func, NULL);
 }
 
