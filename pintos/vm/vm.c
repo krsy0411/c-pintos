@@ -36,10 +36,11 @@ static bool vm_do_claim_page(struct page *page);
 static struct frame *vm_evict_frame(void);
 
 /*
-  현재 할당된 물리 프레임의 상태를 추적 하기 위한 자료 구조 선언
-  Swap이 필요할 때 이 테이블을 순회하여 희생양 프레임을 결정함
-*/
-
+ * 1. 페이지가 아직 물리적으로 할당되지 않은(uninit) 상태에서,
+ * 타입에 맞는 초기화 정보와 함께 논리적으로 페이지를 등록
+ * 2. 실제 물리 프레임 할당 및 초기화는 페이지 폴트 시,
+ * vm_do_claim_page() => swap_in 핸들러를 통해 이뤄짐
+ */
 bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
                                     bool writable, vm_initializer *init,
                                     void *aux) {
@@ -47,11 +48,45 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
 
   struct supplemental_page_table *spt = &thread_current()->spt;
 
+  /* 해당 가상 주소에 페이지가 존재하지 않으면 */
   if (spt_find_page(spt, upage) == NULL) {
-    /* TODO: Create the page, fetch the initializer according to the VM type,
-     * and then create "uninit" page struct by calling uninit_new. */
-    /* TODO: Insert the page into the spt. */
+    struct page *page = malloc(sizeof(struct page));
+    if (page == NULL) return false;
+
+    page->writable = writable;
+
+    /*
+     * 초기화 함수 포인터 설정
+     * type에 따라 anon_initializer 또는 file_backed_initializer 설정
+     * page_initializer는 uninit_new()에서 사용
+     * 페이지가 swap-in될 때 호출되어 페이지를 초기화하는 역할
+     */
+    bool (*initializer)(struct page *, enum vm_type, void *kva);
+    switch (VM_TYPE(type)) {
+      case VM_ANON:
+        initializer = anon_initializer;
+        break;
+      case VM_FILE:
+        initializer = file_backed_initializer;
+        break;
+      default:
+        free(page);
+        return false;
+    }
+
+    /* uninit 페이지 생성 */
+    uninit_new(page, upage, init, type, aux, initializer);
+
+    /* spt에 페이지 삽입 : 정보 저장 */
+    if (!spt_insert_page(spt, page)) {
+      free(page);
+      return false;
+    }
+
+    return true;
   }
+
+  /* 이미 해당 가상 주소에 페이지가 존재하면 실패 */
   return false;
 }
 
