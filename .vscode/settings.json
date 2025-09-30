@@ -34,8 +34,7 @@
     "array": "c",
     "string_view": "c",
     "initializer_list": "c",
-    "utility": "c",
-    "mmu.h": "c"
+    "utility": "c"
   },
   /* 포맷팅 설정 */
   "editor.formatOnSave": true, // 파일 저장(ctrl+s)할 때 자동 포맷팅
