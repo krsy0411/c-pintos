@@ -788,6 +788,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
 }
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
+/* Project 2에서 사용하는 setup_stack 함수 */
 static bool setup_stack(struct intr_frame* if_) {
   uint8_t* kpage;
   bool success = false;
@@ -901,15 +902,25 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
+/* Project 3에서 사용하는 setup_stack 함수 */
 static bool setup_stack(struct intr_frame* if_) {
-  bool success = false;
   void* stack_bottom = (void*)(((uint8_t*)USER_STACK) - PGSIZE);
 
-  /* TODO: Map the stack on stack_bottom and claim the page immediately.
-   * TODO: If success, set the rsp accordingly.
-   * TODO: You should mark the page is stack. */
-  /* TODO: Your code goes here */
+  /* 1. stack_bottom 주소에 익명 페이지를 할당 */
+  if (!vm_alloc_page(VM_ANON, stack_bottom, true)) return false;
 
-  return success;
+  /* 2. 페이지를 실제 물리 메모리에 할당(매핑) */
+  if (!vm_claim_page(stack_bottom)) return false;
+
+  /* 3. 페이지가 스택임을 표시 */
+  struct page* page = spt_find_page(&thread_current()->spt, stack_bottom);
+  if (page == NULL) return false;  // 페이지 찾기 실패 시 false 반환
+
+  page->is_stack = true;
+
+  /* 4. rsp 레지스터를 스택 최상단으로 설정 */
+  if_->rsp = USER_STACK;
+
+  return true;
 }
 #endif /* VM */

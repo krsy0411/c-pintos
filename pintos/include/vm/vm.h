@@ -56,6 +56,7 @@ struct page {
   /* Project_3 Memory Management */
   struct hash_elem hash_elem;
   bool writable;
+  bool is_stack;
   /* Per-type data are binded into the union.
    * Each function automatically detects the current union */
   union {
@@ -109,7 +110,10 @@ void spt_remove_page(struct supplemental_page_table *spt, struct page *page);
 void vm_init(void);
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present);
-
+/* vm_alloc_page() : 가상 메모리 페이지를 할당하는 함수
+ * 내부적으로는 vm_alloc_page_with_initializer()를 호출
+ * 초기화 함수와 보조 데이터를 NULL로 전달하여 기본 페이지 할당 수행
+ */
 #define vm_alloc_page(type, upage, writable) \
   vm_alloc_page_with_initializer((type), (upage), (writable), NULL, NULL)
 bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,

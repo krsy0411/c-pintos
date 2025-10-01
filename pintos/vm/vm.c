@@ -53,7 +53,9 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
     struct page *page = malloc(sizeof(struct page));
     if (page == NULL) return false;
 
+    // page 멤버 초기화
     page->writable = writable;
+    page->is_stack = false;
 
     /*
      * 초기화 함수 포인터 설정
@@ -154,13 +156,34 @@ static void vm_stack_growth(void *addr UNUSED) {}
 
 static bool vm_handle_wp(struct page *page UNUSED) {}
 
+/*
+ * 페이지 폴트가 발생했을 때, 처리 가능한 정상적인 폴트인지 판단하고 처리할 함수
+ * f(인터럽트 프레임) : 페이지 폴트가 발생했을 때의 CPU 레지스터 상태
+ * addr : 페이지 폴트가 발생한 가상 주소
+ * user : 유저 모드에서 발생한 페이지 폴트인지 여부(커널 모드/유저 모드)
+ * write : 쓰기 접근인지 여부(읽기/쓰기)
+ * not_present : 페이지가 존재하지 않아서 발생한 폴트인지 여부(페이지 존재/권한)
+ */
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present) {
   struct supplemental_page_table *spt = &thread_current()->spt;
   struct page *page = NULL;
-  /* TODO: Validate the fault */
-  /* TODO: Your code goes here */
-  return vm_do_claim_page(page);
+  /* 주소 유효성 검증 */
+  if ((addr == NULL) || !is_user_vaddr(addr)) return false;
+
+  /* SPT에서 페이지 찾기 */
+  void *page_addr = pg_round_down(addr);
+  page = spt_find_page(spt, page_addr);
+
+  /* 페이지가 있으면 claim(= lazy loading) */
+  if (page != NULL) {
+    return vm_do_claim_page(page);
+  }
+
+  // TODO: 현재는 페이지가 없으면 실패. 이후 stack growth를 지원하는 로직 필요
+  // TODO: 읽기 전용 페이지에 쓰기 접근 시도하는 경우 처리 필요
+  // TODO: 페이지 권한 문제의 경우 처리 필요
+  return false;
 }
 
 void vm_dealloc_page(struct page *page) {
