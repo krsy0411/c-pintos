@@ -9,7 +9,7 @@
 static struct disk *swap_disk;
 struct bitmap *swap_table;  // swap slot 사용여부 관리하기 위한 비트맵 포인터
 const size_t SECTORS_PER_PAGE = PGSIZE / DISK_SECTOR_SIZE;
-// 페이지 하나당 디스크 섹터 몇개 인지 나타내는 상수
+// 페이지 하나당 몇개의 sector가 들어가는가를 계산
 
 static bool anon_swap_in(struct page *page, void *kva);
 static bool anon_swap_out(struct page *page);
@@ -25,6 +25,9 @@ static const struct page_operations anon_ops = {
 
 /* Initialize the data for anonymous pages */
 void vm_anon_init(void) {
+  /* 익명 페이지 실행 전 스왑이 원활하게 일어날 수 있도록
+    스왑 파티션 디스크를 찾아 연결하고 초기화 후 비트맵을 생성하는 함수
+  */
   swap_disk = disk_get(1, 1);
   size_t swap_size = disk_size(swap_disk) / SECTORS_PER_PAGE;
   swap_table = bitmap_create(swap_size);
