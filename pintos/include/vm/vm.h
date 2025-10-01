@@ -36,6 +36,12 @@ struct page_operations;
 struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
+struct segment_info {
+  struct file *file;         // 어떤 파일에서?
+  off_t ofs;                 // 파일의 어느 위치부터?
+  uint32_t page_read_bytes;  // 몇 바이트 읽을지?
+  uint32_t page_zero_bytes;  // 나머지는 0으로?
+};
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
