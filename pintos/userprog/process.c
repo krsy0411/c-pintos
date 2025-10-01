@@ -856,21 +856,29 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
     /* Do calculate how to fill this page.
      * We will read PAGE_READ_BYTES bytes from FILE
      * and zero the final PAGE_ZERO_BYTES bytes. */
+
+    /*1. 페이지 계산*/
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-    /* TODO: Set up aux to pass information to the lazy_load_segment. */
-    /* 실제 로딩을 하는건 아니고, 페이지 폴트 발생 시 로딩하도록 페이지만 등록
-     */
-    void* aux = NULL;
+    /*2. 정보 구조체 생성 및 채우기*/
+    struct segment_info* info =
+        (struct segment_info*)malloc(sizeof(struct segment_info));
+
+    info->file = file;
+    info->ofs = ofs;
+    info->read_bytes = page_read_bytes;
+
+    // 3. 페이지 타입이랑 생성한 info를 aux로 넘겨 페이지 등록
     if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable,
-                                        lazy_load_segment, aux))
+                                        lazy_load_segment, info))
       return false;
 
-    /* Advance. */
+    /* 다음 페이지 준비 */
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     upage += PGSIZE;
+    ofs += page_read_bytes;
   }
   return true;
 }
