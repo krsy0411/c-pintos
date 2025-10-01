@@ -825,10 +825,35 @@ static bool install_page(void* upage, void* kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
+/*
+ * 페이지 폴트가 발생할 때 호출되는 함수
+ * uninit_initialize() => lazy_load_segment()
+ */
 static bool lazy_load_segment(struct page* page, void* aux) {
-  /* TODO: Load the segment from the file */
-  /* TODO: This called when the first page fault occurs on address VA. */
-  /* TODO: VA is available when calling this function. */
+  struct segment_info* info = (struct segment_info*)aux;
+  struct file* file = info->file;
+  off_t ofs = info->ofs;
+  uint32_t read_bytes = info->read_bytes;
+  uint32_t zero_bytes = info->zero_bytes;
+
+  /* 1. 파일 오프셋을 지정한 위치로 이동 */
+  file_seek(file, ofs);
+
+  /* 2. 파일에서 데이터 읽어오기 */
+  off_t bytes_read = file_read(file, page->frame->kva, read_bytes);
+  if (bytes_read != (off_t)read_bytes) {
+    free(aux);
+    return false;  // 파일 읽기 실패
+  }
+
+  /* 3. 남은 부분을 0으로 초기화 */
+  memset((page->frame->kva) + (info->read_bytes), 0, zero_bytes);
+
+  /* 4. 정리 */
+  file_close(file);
+  free(aux);
+
+  return true;
 }
 
 /*
