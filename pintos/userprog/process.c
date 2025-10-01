@@ -845,6 +845,7 @@ static bool lazy_load_segment(struct page* page, void* aux) {
  * 적재할 수 있습니다.
  * 6. 즉, Project2와 달리 "필요할 때만" 메모리에 올리는 방식입니다.
  */
+
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
                          uint32_t read_bytes, uint32_t zero_bytes,
                          bool writable) {
