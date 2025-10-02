@@ -42,7 +42,6 @@ struct segment_info {
   uint32_t page_read_bytes;  // 몇 바이트 읽을지?
   uint32_t page_zero_bytes;  // 나머지는 0으로?
 };
-
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
