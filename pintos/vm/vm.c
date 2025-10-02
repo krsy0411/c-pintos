@@ -228,7 +228,7 @@ static bool vm_do_claim_page(struct page *page) {
 /* Initialize new supplemental page table */
 void supplemental_page_table_init(struct supplemental_page_table *spt UNUSED) {
   /** Project 3-Memory Management */
-  hash_init(&spt->spt_hash, hash_hash_func, hash_less_func, NULL);
+  hash_init(&spt->spt_hash, spt_hash_func, spt_less_func, NULL);
 }
 
 bool supplemental_page_table_copy(struct supplemental_page_table *dst,
@@ -242,13 +242,13 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt) {
    * writeback all the modified contents to the storage. */
 }
 
-uint64_t hash_hash_func(const struct hash_elem *e, void *aux) {
+uint64_t spt_hash_func(const struct hash_elem *e, void *aux) {
   struct page *page = hash_entry(e, struct page, hash_elem);
   return hash_bytes(page->va, sizeof *page->va);
 }
 
-bool hash_less_func(const struct hash_elem *a, const struct hash_elem *b,
-                    void *aux) {
+bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b,
+                   void *aux) {
   struct page *page_a = hash_entry(a, struct page, hash_elem);
   struct page *page_b = hash_entry(b, struct page, hash_elem);
 
