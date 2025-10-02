@@ -834,8 +834,8 @@ static bool lazy_load_segment(struct page* page, void* aux) {
   struct segment_info* info = (struct segment_info*)aux;
   struct file* file = info->file;
   off_t ofs = info->ofs;
-  uint32_t read_bytes = info->read_bytes;
-  uint32_t zero_bytes = info->zero_bytes;
+  uint32_t read_bytes = info->page_read_bytes;
+  uint32_t zero_bytes = info->page_zero_bytes;
 
   /* 1. 파일 오프셋을 지정한 위치로 이동 */
   file_seek(file, ofs);
@@ -848,7 +848,7 @@ static bool lazy_load_segment(struct page* page, void* aux) {
   }
 
   /* 3. 남은 부분을 0으로 초기화 */
-  memset((page->frame->kva) + (info->read_bytes), 0, zero_bytes);
+  memset((page->frame->kva) + (info->page_read_bytes), 0, zero_bytes);
 
   /* 4. 정리 */
   file_close(file);
@@ -894,7 +894,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
 
     info->file = file;
     info->ofs = ofs;
-    info->read_bytes = page_read_bytes;
+    info->page_read_bytes = page_read_bytes;
 
     // 3. 페이지 타입이랑 생성한 info를 aux로 넘겨 페이지 등록
     if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable,
