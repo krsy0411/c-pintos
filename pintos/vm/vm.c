@@ -5,6 +5,7 @@
 #include "kernel/hash.h"
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "threads/vaddr.h"
 #include "vm/inspect.h"
 #include "vm/vm.h"
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -169,6 +170,7 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
   struct supplemental_page_table *spt = &thread_current()->spt;
   struct page *page = NULL;
   /* 주소 유효성 검증 */
+  // 폴트가 난 주소가 유효한가? 커널이 복구 가능한 주소인가?
   if ((addr == NULL) || !is_user_vaddr(addr)) return false;
 
   /* SPT에서 페이지 찾기 */
@@ -176,8 +178,31 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
   page = spt_find_page(spt, page_addr);
 
   /* 페이지가 있으면 claim(= lazy loading) */
+  // 페이지가 있으면 물리 프레임이 연결되지 않은 페이지니까 물리 프레임 할당하고
+  // 로드 하면 됨
   if (page != NULL) {
+    if (!not_present) return false;
     return vm_do_claim_page(page);
+  }
+
+  // spt에 엔트리가 없음
+  if (!not_present) return false;
+  void *rsp = (void *)f->rsp;
+
+  const int size = 8;
+
+  if (addr >= (rsp - size) && addr < KERN_BASE) {
+    /* 스택 확장: 새 페이지를 SPT에 등록 */
+    vm_stack_growth(addr);
+
+    // 확장 직후 해당 페이지를 다시 찾아 매핑해야함
+    {
+      void *upage = pg_round_down(addr);
+      struct page *page = spt_find_page(spt, upage);
+      if (page != NULL) return vm_do_claim_page(page);
+    }
+
+    return false;
   }
 
   // TODO: 현재는 페이지가 없으면 실패. 이후 stack growth를 지원하는 로직 필요
@@ -231,10 +256,44 @@ void supplemental_page_table_init(struct supplemental_page_table *spt UNUSED) {
   hash_init(&spt->spt_hash, spt_hash_func, spt_less_func, NULL);
 }
 
-bool supplemental_page_table_copy(struct supplemental_page_table *dst,
-                                  struct supplemental_page_table *src) {
-  /* TODO: Implement copy logic */
-  return false;
+bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
+                                  struct supplemental_page_table *src UNUSED) {
+  // TODO: 보조 페이지 테이블을 src에서 dst로 복사합니다.
+  // TODO: src의 각 페이지를 순회하고 dst에 해당 entry의 사본을 만듭니다.
+  // TODO: uninit page를 할당하고 그것을 즉시 claim해야 합니다.
+  struct hash_iterator i;
+  hash_first(&i, &src->spt_hash);
+  while (hash_next(&i)) {
+    // src_page 정보
+    struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+    enum vm_type type = src_page->operations->type;
+    void *upage = src_page->va;
+    bool writable = src_page->writable;
+
+    /* 1) type이 uninit이면 */
+    if (type == VM_UNINIT) {  // uninit page 생성 & 초기화
+      vm_initializer *init = src_page->uninit.init;
+      void *aux = src_page->uninit.aux;
+      vm_alloc_page_with_initializer(VM_ANON, upage, writable, init, aux);
+      continue;
+    }
+
+    /* 2) type이 uninit이 아니면 */
+    if (!vm_alloc_page_with_initializer(type, upage, writable, NULL,
+                                        NULL))  // uninit page 생성 & 초기화
+      // init(lazy_load_segment)는 page_fault가 발생할때 호출됨
+      // 지금 만드는 페이지는 page_fault가 일어날 때까지 기다리지 않고 바로
+      // 내용을 넣어줘야 하므로 필요 없음
+      return false;
+
+    // vm_claim_page으로 요청해서 매핑 & 페이지 타입에 맞게 초기화
+    if (!vm_claim_page(upage)) return false;
+
+    // 매핑된 프레임에 내용 로딩
+    struct page *dst_page = spt_find_page(dst, upage);
+    memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+  }
+  return true;
 }
 
 /* 아래 spt_kill 함수에서 콜백 함수로 전달하기 위한 함수 */
