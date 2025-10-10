@@ -52,7 +52,7 @@ int dup2(int oldfd, int newfd);
 
 void syscall_init(void) {
   write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 | ((uint64_t)SEL_KCSEG)
-                      << 32);
+                                                               << 32);
   write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
   write_msr(MSR_SYSCALL_MASK,
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
@@ -294,40 +294,40 @@ int read(int fd, void* buffer, unsigned size) {
 
   if (file == NULL || file == STDOUT_MARKER) return -1;
 
-  if (file == STDIN_MARKER) {
-    // stdin에서 읽기 전에 버퍼 유효성 검사
-    for (unsigned i = 0; i < size; i++) {
-      if (!is_user_vaddr((uint8_t*)buffer + i)) {
+  for (unsigned i = 0; i < size; i++) {
+    uint8_t* addr = (uint8_t*)buffer + i;
+
+    if (!is_user_vaddr(addr)) {
+      exit(-1);
+    }
+
+    void* kva = pml4_get_page(thread_current()->pml4, addr);
+#ifdef VM
+    if (kva == NULL) {
+      // page fault 처리 시도
+      if (!vm_try_handle_fault(NULL, (void*)addr, true, false, true)) {
         exit(-1);
       }
-      if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
+      kva = pml4_get_page(thread_current()->pml4, addr);
+      if (kva == NULL) {
         exit(-1);
       }
     }
-
-    // stdin에서 읽기
+#else
+    if (kva == NULL) {
+      exit(-1);
+    }
+#endif
+  }
+  // 읽기
+  if (file == STDIN_MARKER) {
     for (unsigned i = 0; i < size; i++) {
       *((uint8_t*)buffer + i) = (uint8_t)input_getc();
     }
-    bytes_read = size;
+    return size;
   } else {
-    // 잘못된 fd인 경우 리턴
-
-    // 버퍼가 유효한 사용자 주소인지 확인
-    for (unsigned i = 0; i < size; i++) {
-      if (!is_user_vaddr((uint8_t*)buffer + i)) {
-        exit(-1);
-      }
-      if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
-        exit(-1);
-      }
-    }
-
-    // file_read() 함수 호출
-    bytes_read = file_read(file, buffer, size);
+    return file_read(file, buffer, size);
   }
-
-  return bytes_read;
 }
 
 int open(const char* file) {
@@ -417,10 +417,24 @@ bool copy_in(void* dst, const void* usrc, size_t size) {
       return false;
     }
 
-    void* kva = pml4_get_page(thread_current()->pml4, user_addr);
+    struct thread* curr = thread_current();
+    void* pml4 = curr->pml4;
+    void* kva = pml4_get_page(pml4, user_addr);
+#ifdef VM
+    if (kva == NULL) {
+      if (!vm_try_handle_fault(NULL, (void*)user_addr, true, false, true)) {
+        return false;
+      }
+      kva = pml4_get_page(pml4, user_addr);
+      if (kva == NULL) {
+        return false;
+      }
+    }
+#else
     if (kva == NULL) {
       return false;
     }
+#endif
 
     ((char*)dst)[i] = *(char*)kva;
   }
@@ -440,7 +454,7 @@ bool copy_in(void* dst, const void* usrc, size_t size) {
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   /* (1) 파라미터 가드 */
   if (dst == NULL || dst_sz == 0) return false;
-  if (us == NULL || !is_user_vaddr(us)) exit(-1); // bad ptr → 종료
+  if (us == NULL || !is_user_vaddr(us)) exit(-1);  // bad ptr → 종료
 
   struct thread* curr = thread_current();
   void* pml4 = curr->pml4;
@@ -449,16 +463,26 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
   for (size_t i = 0; i < dst_sz; i++) {
     const char* up = (const char*)us + i;
 
-    if (!is_user_vaddr(up)) exit(-1); // 커널 경계 넘어가면 종료
+    if (!is_user_vaddr(up)) exit(-1);  // 커널 경계 넘어가면 종료
     char* kva = pml4_get_page(pml4, up);
-    if (kva == NULL) exit(-1); // 미매핑 → 종료
+#ifdef VM
+    if (kva == NULL) {
+      if (!vm_try_handle_fault(NULL, (void*)up, true, false, true)) {
+        exit(-1);
+      }
+      kva = pml4_get_page(pml4, up);
+      if (kva == NULL) exit(-1);
+    }
+#else
+    if (kva == NULL) exit(-1);  // 미매핑 → 종료
+#endif
 
-    char c = *kva; // 안전한 한 바이트 로드
-    dst[i] = c;    // 커널 버퍼에 기록
+    char c = *kva;  // 안전한 한 바이트 로드
+    dst[i] = c;     // 커널 버퍼에 기록
 
     if (c == '\0') {
       // 문자열 끝
-      if (out_len) *out_len = i; // 널 전까지 길이
+      if (out_len) *out_len = i;  // 널 전까지 길이
       return true;
     }
   }
@@ -476,7 +500,7 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
 
   // 2. 전체 문자열 유효성 검사
   int len = 0;
-  int MAX_LEN = 16; // 최대 길이 제한(16자)
+  int MAX_LEN = 16;  // 최대 길이 제한(16자)
   while (len < MAX_LEN) {
     if (!is_user_vaddr(thread_name + len) ||
         !pml4_get_page(thread_current()->pml4, thread_name + len)) {
@@ -497,7 +521,6 @@ int wait(pid_t pid) { return process_wait(pid); }
 int dup2(int oldfd, int newfd) {
   if (oldfd < 0 || oldfd >= FDT_SIZE) return -1;
   if (newfd < 0 || newfd >= FDT_SIZE) return -1;
-
 
   if (oldfd == newfd) return newfd;
   struct thread* curr = thread_current();

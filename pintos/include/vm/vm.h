@@ -36,7 +36,12 @@ struct page_operations;
 struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
-
+struct segment_info {
+  struct file *file;         // 어떤 파일에서?
+  off_t ofs;                 // 파일의 어느 위치부터?
+  uint32_t page_read_bytes;  // 몇 바이트 읽을지?
+  uint32_t page_zero_bytes;  // 나머지는 0으로?
+};
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
@@ -50,6 +55,7 @@ struct page {
   /* Project_3 Memory Management */
   struct hash_elem hash_elem;
   bool writable;
+  bool is_stack;
   /* Per-type data are binded into the union.
    * Each function automatically detects the current union */
   union {
@@ -103,7 +109,10 @@ void spt_remove_page(struct supplemental_page_table *spt, struct page *page);
 void vm_init(void);
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present);
-
+/* vm_alloc_page() : 가상 메모리 페이지를 할당하는 함수
+ * 내부적으로는 vm_alloc_page_with_initializer()를 호출
+ * 초기화 함수와 보조 데이터를 NULL로 전달하여 기본 페이지 할당 수행
+ */
 #define vm_alloc_page(type, upage, writable) \
   vm_alloc_page_with_initializer((type), (upage), (writable), NULL, NULL)
 bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
@@ -114,8 +123,8 @@ bool vm_claim_page(void *va);
 enum vm_type page_get_type(struct page *page);
 
 /*project_3*/
-uint64_t hash_hash_func(const struct hash_elem *e, void *aux);
+uint64_t spt_hash_func(const struct hash_elem *e, void *aux);
 
-bool hash_less_func(const struct hash_elem *a, const struct hash_elem *b,
-                    void *aux);
+bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b,
+                   void *aux);
 #endif /* VM_VM_H */

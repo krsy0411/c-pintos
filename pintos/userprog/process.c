@@ -582,6 +582,11 @@ static bool load(const char* file_name, struct intr_frame* if_) {
   if (t->pml4 == NULL) goto done;
   process_activate(thread_current());
 
+#ifdef VM
+  /* SPT 초기화 */
+  supplemental_page_table_init(&t->spt);
+#endif
+
   /* Open executable file. */
   file = filesys_open(file_name);
   if (file == NULL) {
@@ -788,6 +793,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
 }
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
+/* Project 2에서 사용하는 setup_stack 함수 */
 static bool setup_stack(struct intr_frame* if_) {
   uint8_t* kpage;
   bool success = false;
@@ -825,10 +831,34 @@ static bool install_page(void* upage, void* kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
+/*
+ * 페이지 폴트가 발생할 때 호출되는 함수
+ * uninit_initialize() => lazy_load_segment()
+ */
 static bool lazy_load_segment(struct page* page, void* aux) {
-  /* TODO: Load the segment from the file */
-  /* TODO: This called when the first page fault occurs on address VA. */
-  /* TODO: VA is available when calling this function. */
+  struct segment_info* info = (struct segment_info*)aux;
+  struct file* file = info->file;
+  off_t ofs = info->ofs;
+  uint32_t read_bytes = info->page_read_bytes;
+  uint32_t zero_bytes = info->page_zero_bytes;
+
+  /* 1. 파일 오프셋을 지정한 위치로 이동 */
+  file_seek(file, ofs);
+
+  /* 2. 파일에서 데이터 읽어오기 */
+  off_t bytes_read = file_read(file, page->frame->kva, read_bytes);
+  if (bytes_read != (off_t)read_bytes) {
+    free(aux);
+    return false;  // 파일 읽기 실패
+  }
+
+  /* 3. 남은 부분을 0으로 초기화 */
+  memset((page->frame->kva) + read_bytes, 0, zero_bytes);
+
+  /* 4. 정리 */
+  free(aux);
+
+  return true;
 }
 
 /*
@@ -845,6 +875,7 @@ static bool lazy_load_segment(struct page* page, void* aux) {
  * 적재할 수 있습니다.
  * 6. 즉, Project2와 달리 "필요할 때만" 메모리에 올리는 방식입니다.
  */
+
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
                          uint32_t read_bytes, uint32_t zero_bytes,
                          bool writable) {
@@ -856,35 +887,54 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage,
     /* Do calculate how to fill this page.
      * We will read PAGE_READ_BYTES bytes from FILE
      * and zero the final PAGE_ZERO_BYTES bytes. */
+
+    /*1. 페이지 계산*/
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-    /* TODO: Set up aux to pass information to the lazy_load_segment. */
-    /* 실제 로딩을 하는건 아니고, 페이지 폴트 발생 시 로딩하도록 페이지만 등록
-     */
-    void* aux = NULL;
+    /*2. 정보 구조체 생성 및 채우기*/
+    struct segment_info* info =
+        (struct segment_info*)malloc(sizeof(struct segment_info));
+
+    info->file = file;
+    info->ofs = ofs;
+    info->page_read_bytes = page_read_bytes;
+    info->page_zero_bytes = page_zero_bytes;
+
+    // 3. 페이지 타입이랑 생성한 info를 aux로 넘겨 페이지 등록
     if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable,
-                                        lazy_load_segment, aux))
+                                        lazy_load_segment, info))
       return false;
 
-    /* Advance. */
+    /* 다음 페이지 준비 */
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     upage += PGSIZE;
+    ofs += page_read_bytes;
   }
   return true;
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
+/* Project 3에서 사용하는 setup_stack 함수 */
 static bool setup_stack(struct intr_frame* if_) {
-  bool success = false;
   void* stack_bottom = (void*)(((uint8_t*)USER_STACK) - PGSIZE);
 
-  /* TODO: Map the stack on stack_bottom and claim the page immediately.
-   * TODO: If success, set the rsp accordingly.
-   * TODO: You should mark the page is stack. */
-  /* TODO: Your code goes here */
+  /* 1. stack_bottom 주소에 익명 페이지를 할당 */
+  if (!vm_alloc_page(VM_ANON, stack_bottom, true)) return false;
 
-  return success;
+  /* 2. 페이지를 실제 물리 메모리에 할당(매핑) */
+  if (!vm_claim_page(stack_bottom)) return false;
+
+  /* 3. 페이지가 스택임을 표시 */
+  struct page* page = spt_find_page(&thread_current()->spt, stack_bottom);
+  if (page == NULL) return false;  // 페이지 찾기 실패 시 false 반환
+
+  page->is_stack = true;
+
+  /* 4. rsp 레지스터를 스택 최상단으로 설정 */
+  if_->rsp = USER_STACK;
+
+  return true;
 }
 #endif /* VM */
