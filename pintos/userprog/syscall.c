@@ -294,6 +294,31 @@ int read(int fd, void* buffer, unsigned size) {
 
   if (file == NULL || file == STDOUT_MARKER) return -1;
 
+  for (unsigned i = 0; i < size; i++) {
+    uint8_t* addr = (uint8_t*)buffer + i;
+
+    if (!is_user_vaddr(addr)) {
+      exit(-1);
+    }
+
+    void* kva = pml4_get_page(thread_current()->pml4, addr);
+#ifdef VM
+    if (kva == NULL) {
+      // page fault 처리 시도
+      if (!vm_try_handle_fault(NULL, (void*)addr, true, false, true)) {
+        exit(-1);
+      }
+      kva = pml4_get_page(thread_current()->pml4, addr);
+      if (kva == NULL) {
+        exit(-1);
+      }
+    }
+#else
+    if (kva == NULL) {
+      exit(-1);
+    }
+#endif
+  }
   if (file == STDIN_MARKER) {
     // stdin에서 읽기 전에 버퍼 유효성 검사
     for (unsigned i = 0; i < size; i++) {
