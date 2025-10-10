@@ -1,6 +1,7 @@
 /* anon.c: Implementation of page for non-disk image (a.k.a. anonymous page). */
-
 #include "devices/disk.h"
+#include "threads/mmu.h"
+#include "threads/thread.h"  // thread_current()
 #include "vm/vm.h"
 
 /* DO NOT MODIFY BELOW LINE */
@@ -53,5 +54,23 @@ static bool anon_swap_out(struct page *page) {
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void anon_destroy(struct page *page) {
-  struct anon_page *anon_page = &page->anon;
+  if (page == NULL) return;
+
+  // 가상 페이지가 물리 프레임도 갖고 있다면 해제해줘야 한다
+  if (page->frame != NULL) {
+    struct frame *f = page->frame;
+
+    struct thread *t = thread_current();
+    if (t != NULL && t->pml4 != NULL) {
+      pml4_clear_page(t->pml4, page->va);
+    }
+
+    if (f->kva != NULL) {
+      palloc_free_page(f->kva);
+      f->kva = NULL;
+    }
+
+    f->page = NULL;
+    page->frame = NULL;
+  }
 }
