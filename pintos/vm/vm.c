@@ -222,17 +222,7 @@ static bool vm_do_claim_page(struct page *page) {
     return false;
   }
 
-  /* swap in에 실패한 경우 : 정리 */
-  if (!swap_in(page, frame->kva)) {
-    pml4_clear_page(curr->pml4, page->va);
-    frame->page = NULL;
-    page->frame = NULL;
-    palloc_free_page(frame->kva);
-    free(frame);
-    return false;
-  }
-
-  return true;
+  return swap_in(page, frame->kva);
 }
 
 /* Initialize new supplemental page table */
