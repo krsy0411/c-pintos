@@ -319,40 +319,15 @@ int read(int fd, void* buffer, unsigned size) {
     }
 #endif
   }
+  // 읽기
   if (file == STDIN_MARKER) {
-    // stdin에서 읽기 전에 버퍼 유효성 검사
-    for (unsigned i = 0; i < size; i++) {
-      if (!is_user_vaddr((uint8_t*)buffer + i)) {
-        exit(-1);
-      }
-      if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
-        exit(-1);
-      }
-    }
-
-    // stdin에서 읽기
     for (unsigned i = 0; i < size; i++) {
       *((uint8_t*)buffer + i) = (uint8_t)input_getc();
     }
-    bytes_read = size;
+    return size;
   } else {
-    // 잘못된 fd인 경우 리턴
-
-    // 버퍼가 유효한 사용자 주소인지 확인
-    for (unsigned i = 0; i < size; i++) {
-      if (!is_user_vaddr((uint8_t*)buffer + i)) {
-        exit(-1);
-      }
-      if (!pml4_get_page(thread_current()->pml4, (uint8_t*)buffer + i)) {
-        exit(-1);
-      }
-    }
-
-    // file_read() 함수 호출
-    bytes_read = file_read(file, buffer, size);
+    return file_read(file, buffer, size);
   }
-
-  return bytes_read;
 }
 
 int open(const char* file) {
