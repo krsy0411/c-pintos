@@ -417,10 +417,24 @@ bool copy_in(void* dst, const void* usrc, size_t size) {
       return false;
     }
 
-    void* kva = pml4_get_page(thread_current()->pml4, user_addr);
+    struct thread* curr = thread_current();
+    void* pml4 = curr->pml4;
+    void* kva = pml4_get_page(pml4, user_addr);
+#ifdef VM
+    if (kva == NULL) {
+      if (!vm_try_handle_fault(NULL, (void*)user_addr, true, false, true)) {
+        return false;
+      }
+      kva = pml4_get_page(pml4, user_addr);
+      if (kva == NULL) {
+        return false;
+      }
+    }
+#else
     if (kva == NULL) {
       return false;
     }
+#endif
 
     ((char*)dst)[i] = *(char*)kva;
   }
@@ -451,7 +465,17 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
 
     if (!is_user_vaddr(up)) exit(-1); // 커널 경계 넘어가면 종료
     char* kva = pml4_get_page(pml4, up);
+#ifdef VM
+    if (kva == NULL) {
+      if (!vm_try_handle_fault(NULL, (void*)up, true, false, true)) {
+        exit(-1);
+      }
+      kva = pml4_get_page(pml4, up);
+      if (kva == NULL) exit(-1);
+    }
+#else
     if (kva == NULL) exit(-1); // 미매핑 → 종료
+#endif
 
     char c = *kva; // 안전한 한 바이트 로드
     dst[i] = c;    // 커널 버퍼에 기록
