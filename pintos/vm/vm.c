@@ -53,10 +53,6 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
     struct page *page = malloc(sizeof(struct page));
     if (page == NULL) return false;
 
-    // page 멤버 초기화
-    page->writable = writable;
-    page->is_stack = false;
-
     /*
      * 초기화 함수 포인터 설정
      * type에 따라 anon_initializer 또는 file_backed_initializer 설정
@@ -78,6 +74,10 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
 
     /* uninit 페이지 생성 */
     uninit_new(page, upage, init, type, aux, initializer);
+
+    // page 멤버 초기화
+    page->writable = writable;
+    page->is_stack = false;
 
     /* spt에 페이지 삽입 : 정보 저장 */
     if (!spt_insert_page(spt, page)) {
@@ -244,7 +244,7 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt) {
 
 uint64_t spt_hash_func(const struct hash_elem *e, void *aux) {
   struct page *page = hash_entry(e, struct page, hash_elem);
-  return hash_bytes(page->va, sizeof *page->va);
+  return hash_bytes(&page->va, sizeof(page->va));
 }
 
 bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b,
