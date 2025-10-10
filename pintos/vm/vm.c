@@ -237,9 +237,14 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
   return false;
 }
 
+/* 아래 spt_kill 함수에서 콜백 함수로 전달하기 위한 함수 */
+static void spt_hash_destroy_func(struct hash_elem *e, void *aux) {
+  struct page *page = hash_entry(e, struct page, hash_elem);
+  vm_dealloc_page(page);  // destroy + free
+}
+
 void supplemental_page_table_kill(struct supplemental_page_table *spt) {
-  /* TODO: Destroy all the supplemental_page_table hold by thread and
-   * writeback all the modified contents to the storage. */
+  hash_destroy(&spt->spt_hash, spt_hash_destroy_func);
 }
 
 uint64_t spt_hash_func(const struct hash_elem *e, void *aux) {
