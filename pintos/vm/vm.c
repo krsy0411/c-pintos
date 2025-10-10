@@ -238,12 +238,15 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
   struct hash_iterator
       it;  // SPT는 해시테이블로 관리하니까 그 안을 돌기 위한 반복자 준비
   hash_first(&it, &src->spt_hash);  // 부모SPT 버킷 순회를 위해서 반복자 초기화
-  while (hash_next(&it)) {
+  while (hash_next(&it)) {  // 부모 SPT의 모든 페이지 엔트리를 순회하며 자식
+                            // SPT에 대응 페이지를 만들기
     struct page *src_page = hash_entry(hash_cur(&it), struct page, hash_elem);
     enum vm_type type = page_get_type(src_page);
     void *upage = src_page->va;
     bool writable = src_page->writable;
 
+    /* 아직 로드되지 않은(uninit) 페이지는 initializer/aux 정보를 복제
+특히 파일 기반 lazy load라면 file_reopen()으로 자식 전용 파일 핸들을 만들기 */
     if (src_page->operations->type == VM_UNINIT) {
       struct uninit_page *uninit = &src_page->uninit;
       vm_initializer *init = uninit->init;
@@ -276,7 +279,8 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
       dst_page->is_stack = src_page->is_stack;
       continue;
     }
-
+    /* 이미 로드된 anon/file 페이지라면 새 프레임을 할당·매핑하고 부모 프레임
+     내용을 자식 프레임에 그대로 복사 */
     if (!vm_alloc_page(type, upage, writable)) return false;
     if (!vm_claim_page(upage)) {
       struct page *dst_page = spt_find_page(dst, upage);
