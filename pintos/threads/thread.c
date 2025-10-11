@@ -664,6 +664,9 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   sema_init(&t->wait_sema, 0);
   sema_init(&t->exit_sema, 0);
 #endif
+#ifdef VM
+  t->user_rsp = NULL;
+#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
