@@ -178,10 +178,7 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
 
   // 주소는 유효하나 메모리에 없어서 생긴 페이지 폴트라면 복구 대상이 맞음
   if (not_present) {
-    // user access 인 경우
-    void *rsp = f->rsp;
-    // kernel access 인 경우
-    if (!user) rsp = thread_current()->rsp;
+    void *rsp = user ? f->rsp : thread_current()->rsp;
 
     // 스택 확장으로 처리할 수 있는 폴트인 경우에 한해서만 vm_stack_growth를
     // 호출
