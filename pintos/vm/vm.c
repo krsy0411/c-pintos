@@ -168,46 +168,38 @@ static bool vm_handle_wp(struct page *page UNUSED) {}
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present) {
   struct supplemental_page_table *spt = &thread_current()->spt;
-  struct page *page = NULL;
-  /* 주소 유효성 검증 */
-  // 폴트가 난 주소가 유효한가? 커널이 복구 가능한 주소인가?
-  if ((addr == NULL) || !is_user_vaddr(addr)) return false;
 
-  /* SPT에서 페이지 찾기 */
-  void *page_addr = pg_round_down(addr);
-  page = spt_find_page(spt, page_addr);
+  /* 0) 주소 1차 검증: NULL 또는 커널 영역이면 복구 대상 아님 */
+  if (addr == NULL || !is_user_vaddr(addr)) return false;
 
-  /* 페이지가 있으면 claim(= lazy loading) */
-  // 페이지가 있으면 물리 프레임이 연결되지 않은 페이지니까 물리 프레임 할당하고
-  // 로드 하면 됨
+  void *upage = pg_round_down(addr);
+  struct page *page = spt_find_page(spt, upage);
+
+  // 커널 모드에서 발생한 fault 처리
+  if (!user) {
+    if (page != NULL && not_present) return vm_do_claim_page(page);
+    return false;
+  }
+
+  // 사용자 모드에서 발생한 fault 처리
   if (page != NULL) {
     if (!not_present) return false;
     return vm_do_claim_page(page);
   }
 
-  // spt에 엔트리가 없음
+  // 사용자 모드이고 SPT에 엔트리는 없음
   if (!not_present) return false;
+
   void *rsp = (void *)f->rsp;
+  const int slack = 8;  // 값 조정 가능
 
-  const int size = 8;
-
-  if (addr >= (rsp - size) && addr < KERN_BASE) {
-    /* 스택 확장: 새 페이지를 SPT에 등록 */
+  if (addr >= (rsp - slack) && addr < KERN_BASE) {
     vm_stack_growth(addr);
-
-    // 확장 직후 해당 페이지를 다시 찾아 매핑해야함
-    {
-      void *upage = pg_round_down(addr);
-      struct page *page = spt_find_page(spt, upage);
-      if (page != NULL) return vm_do_claim_page(page);
-    }
-
+    page = spt_find_page(spt, upage);
+    if (page != NULL) return vm_do_claim_page(page);
     return false;
   }
 
-  // TODO: 현재는 페이지가 없으면 실패. 이후 stack growth를 지원하는 로직 필요
-  // TODO: 읽기 전용 페이지에 쓰기 접근 시도하는 경우 처리 필요
-  // TODO: 페이지 권한 문제의 경우 처리 필요
   return false;
 }
 
