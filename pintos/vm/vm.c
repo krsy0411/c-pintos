@@ -319,26 +319,27 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 
     return true;
   }
+}
 
-  /* 아래 spt_kill 함수에서 콜백 함수로 전달하기 위한 함수 */
-  static void spt_hash_destroy_func(struct hash_elem * e, void *aux) {
-    struct page *page = hash_entry(e, struct page, hash_elem);
-    vm_dealloc_page(page);  // destroy + free
-  }
+/* 아래 spt_kill 함수에서 콜백 함수로 전달하기 위한 함수 */
+static void spt_hash_destroy_func(struct hash_elem *e, void *aux) {
+  struct page *page = hash_entry(e, struct page, hash_elem);
+  vm_dealloc_page(page);  // destroy + free
+}
 
-  void supplemental_page_table_kill(struct supplemental_page_table * spt) {
-    hash_destroy(&spt->spt_hash, spt_hash_destroy_func);
-  }
+void supplemental_page_table_kill(struct supplemental_page_table *spt) {
+  hash_destroy(&spt->spt_hash, spt_hash_destroy_func);
+}
 
-  uint64_t spt_hash_func(const struct hash_elem *e, void *aux) {
-    struct page *page = hash_entry(e, struct page, hash_elem);
-    return hash_bytes(&page->va, sizeof(page->va));
-  }
+uint64_t spt_hash_func(const struct hash_elem *e, void *aux) {
+  struct page *page = hash_entry(e, struct page, hash_elem);
+  return hash_bytes(&page->va, sizeof(page->va));
+}
 
-  bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b,
-                     void *aux) {
-    struct page *page_a = hash_entry(a, struct page, hash_elem);
-    struct page *page_b = hash_entry(b, struct page, hash_elem);
+bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b,
+                   void *aux) {
+  struct page *page_a = hash_entry(a, struct page, hash_elem);
+  struct page *page_b = hash_entry(b, struct page, hash_elem);
 
-    return page_a->va < page_b->va;
-  }
+  return page_a->va < page_b->va;
+}
