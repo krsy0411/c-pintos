@@ -144,7 +144,7 @@ static void page_fault(struct intr_frame *f) {
   유지하고 USERPROG일 때만 호출 될 수 있도록 했습니다!!
 */
 #ifdef USERPROG
-  if (user) {
+  if (user || is_user_vaddr(fault_addr)) {
     exit(-1);
   }
 #endif
