@@ -26,6 +26,8 @@ typedef int pid_t;
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
+static void* sys_mmap(void* addr, size_t length, int writable, int fd,
+                      off_t offset);
 
 /* System call function declarations */
 void exit(int status);
@@ -62,6 +64,10 @@ void syscall_init(void) {
 /* The main system call interface */
 void syscall_handler(struct intr_frame* f UNUSED) {
   int syscall_number = (int)f->R.rax;
+
+#ifndef VM
+  thread_current()->rsp = f->rsp;
+#endif
 
   switch (syscall_number) {
     case SYS_HALT: {
@@ -130,6 +136,10 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       int oldfd = (int)f->R.rdi;
       int newfd = (int)f->R.rsi;
       f->R.rax = dup2(oldfd, newfd);
+      break;
+    }
+    case SYS_MMAP: {
+      f->R.rax = sys_mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
       break;
     }
     default: {
@@ -537,4 +547,30 @@ int dup2(int oldfd, int newfd) {
   }
 
   return newfd;
+}
+
+void* sys_mmap(void* addr, size_t length, int writable, int fd, off_t offset) {
+  struct thread* curr = thread_current();
+
+  if (!addr || addr != pg_round_down(addr)) return NULL;
+  if (offset != pg_round_down(offset)) return NULL;
+  if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length)) return NULL;
+  if (spt_find_page(&curr->spt, addr)) return NULL;
+
+  // fd 검증
+  if (fd < 2 || fd >= FDT_SIZE) {
+    return NULL;
+  }
+
+  // 파일 포인터 얻기
+  struct file* f = curr->fdt[fd];
+  if (f == NULL || f == STDIN_MARKER || f == STDOUT_MARKER) {
+    return NULL;
+  }
+
+  if (file_length(f) == 0 || (int)length <= 0) {
+    return NULL;
+  }
+
+  return do_mmap(addr, length, writable, f, offset);
 }
