@@ -8,7 +8,6 @@
 #include "kernel/hash.h"
 #include "threads/malloc.h"
 #include "threads/mmu.h"
-#include "threads/vaddr.h"
 #include "vm/inspect.h"
 #include "vm/vm.h"
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -171,38 +170,22 @@ static bool vm_handle_wp(struct page *page UNUSED) {}
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present) {
   struct supplemental_page_table *spt = &thread_current()->spt;
+  struct page *page = NULL;
+  /* 주소 유효성 검증 */
+  if ((addr == NULL) || !is_user_vaddr(addr)) return false;
 
-  /* 0) 주소 1차 검증: NULL 또는 커널 영역이면 복구 대상 아님 */
-  if (addr == NULL || !is_user_vaddr(addr)) return false;
+  /* SPT에서 페이지 찾기 */
+  void *page_addr = pg_round_down(addr);
+  page = spt_find_page(spt, page_addr);
 
-  void *upage = pg_round_down(addr);
-  struct page *page = spt_find_page(spt, upage);
-
-  // 커널 모드에서 발생한 fault 처리
-  if (!user) {
-    if (page != NULL && not_present) return vm_do_claim_page(page);
-    return false;
-  }
-
-  // 사용자 모드에서 발생한 fault 처리
+  /* 페이지가 있으면 claim(= lazy loading) */
   if (page != NULL) {
-    if (!not_present) return false;
     return vm_do_claim_page(page);
   }
 
-  // 사용자 모드이고 SPT에 엔트리는 없음
-  if (!not_present) return false;
-
-  void *rsp = (void *)f->rsp;
-  const int slack = 8;  // 값 조정 가능
-
-  if (addr >= (rsp - slack) && addr < KERN_BASE) {
-    vm_stack_growth(addr);
-    page = spt_find_page(spt, upage);
-    if (page != NULL) return vm_do_claim_page(page);
-    return false;
-  }
-
+  // TODO: 현재는 페이지가 없으면 실패. 이후 stack growth를 지원하는 로직 필요
+  // TODO: 읽기 전용 페이지에 쓰기 접근 시도하는 경우 처리 필요
+  // TODO: 페이지 권한 문제의 경우 처리 필요
   return false;
 }
 
@@ -316,9 +299,8 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
         dst_page->frame != NULL && dst_page->frame->kva != NULL) {
       memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
     }
-
-    return true;
   }
+  return true;
 }
 
 /* 아래 spt_kill 함수에서 콜백 함수로 전달하기 위한 함수 */
