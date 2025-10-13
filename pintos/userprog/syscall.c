@@ -63,6 +63,9 @@ void syscall_init(void) {
 void syscall_handler(struct intr_frame* f UNUSED) {
   int syscall_number = (int)f->R.rax;
 
+#ifdef VM
+  thread_current()->user_rsp = f->rsp;
+#endif
   switch (syscall_number) {
     case SYS_HALT: {
       power_off();
