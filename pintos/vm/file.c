@@ -1,5 +1,9 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
+#include "filesys/file.h"
+
+#include <string.h>
+
 #include "threads/malloc.h"
 #include "threads/mmu.h"
 #include "threads/thread.h"
@@ -48,22 +52,37 @@ static void file_backed_destroy(struct page *page) {
 void *do_mmap(void *addr, size_t length, int writable, struct file *file,
               off_t offset) {
   struct file *f = file_reopen(file);
-  void *start_addr = addr;  // 매핑 성공시 파일이 매핑된 가상 주소 반환
+  if (f == NULL) {
+    return NULL;
+  }
 
+  void *start_addr = addr;
+  size_t total_page_count = (length + PGSIZE - 1) / PGSIZE;
   off_t file_len = file_length(f);
   size_t read_bytes = (file_len < length) ? file_len : length;
   size_t zero_bytes = PGSIZE - (read_bytes % PGSIZE);
 
+  if (zero_bytes == PGSIZE) {
+    zero_bytes = 0;
+  }
+
   ASSERT((read_bytes + zero_bytes) % PGSIZE == 0);
-  ASSERT(pg_ofs(addr) == 0);     // upage가 페이지 정렬되어 있는지
-  ASSERT(offset % PGSIZE == 0);  // ofs가 페이지 정렬되어 있는지
+  ASSERT(pg_ofs(addr) == 0);     // upage가 페이지 정렬되어 있는지 확인
+  ASSERT(offset % PGSIZE == 0);  // ofs가 페이지 정렬되어 있는지 확인
 
   while (read_bytes > 0 || zero_bytes > 0) {
+    /* 이 페이지를 채우는 방법을 계산
+    파일에서 PAGE_READ_BYTES 바이트를 읽고
+    최종 PAGE_ZERO_BYTES 바이트를 0으로 채우기 */
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
     struct segment_info *aux =
         (struct segment_info *)malloc(sizeof(struct segment_info));
+    if (aux == NULL) {
+      file_close(f);
+      return NULL;
+    }
 
     aux->file = f;
     aux->ofs = offset;
@@ -73,6 +92,8 @@ void *do_mmap(void *addr, size_t length, int writable, struct file *file,
     // vm_alloc_page_with_initializer를 호출하여 대기 중인 객체를 생성
     if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable,
                                         lazy_load_segment, aux)) {
+      free(aux);
+      file_close(f);
       return NULL;
     }
 
