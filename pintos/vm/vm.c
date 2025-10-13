@@ -171,21 +171,33 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present) {
   struct supplemental_page_table *spt = &thread_current()->spt;
   struct page *page = NULL;
-  /* 주소 유효성 검증 */
+
+  // 폴트가 발생한 주소가 유효하지 않거나 커널 영역 주소라면 복구 대상이 아님
+
   if ((addr == NULL) || !is_user_vaddr(addr)) return false;
 
-  /* SPT에서 페이지 찾기 */
-  void *page_addr = pg_round_down(addr);
-  page = spt_find_page(spt, page_addr);
+  // 주소는 유효하나 메모리에 없어서 생긴 페이지 폴트라면 복구 대상이 맞음
+  if (not_present) {
+    void *rsp = user ? f->rsp : thread_current()->rsp;
 
-  /* 페이지가 있으면 claim(= lazy loading) */
-  if (page != NULL) {
+    // 스택 확장으로 처리할 수 있는 폴트인 경우에 한해서만 vm_stack_growth를
+    // 호출
+    if ((USER_STACK - (1 << 20) <= rsp - 8 && rsp - 8 == addr) &&
+        (addr <= USER_STACK)) {
+      vm_stack_growth(addr);
+    } else if ((USER_STACK - (1 << 20) <= rsp) && (rsp <= addr) &&
+               (addr <= USER_STACK)) {
+      vm_stack_growth(addr);
+    }
+
+    page = spt_find_page(spt, addr);
+    if (page == NULL) return false;
+    // 읽기 관련 정보 확인
+    if (write == 1 && page->writable == 0) return false;
+
     return vm_do_claim_page(page);
   }
 
-  // TODO: 현재는 페이지가 없으면 실패. 이후 stack growth를 지원하는 로직 필요
-  // TODO: 읽기 전용 페이지에 쓰기 접근 시도하는 경우 처리 필요
-  // TODO: 페이지 권한 문제의 경우 처리 필요
   return false;
 }
 

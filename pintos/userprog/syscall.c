@@ -26,9 +26,7 @@ typedef int pid_t;
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
-static void* sys_mmap(void* addr, size_t length, int writable, int fd,
-                      off_t offset);
-
+void* sys_mmap(void* addr, size_t length, int writable, int fd, off_t offset);
 /* System call function declarations */
 void exit(int status);
 bool create(const char* file, unsigned initial_size);
@@ -65,10 +63,9 @@ void syscall_init(void) {
 void syscall_handler(struct intr_frame* f UNUSED) {
   int syscall_number = (int)f->R.rax;
 
-#ifndef VM
+#ifdef VM
   thread_current()->user_rsp = f->rsp;
 #endif
-
   switch (syscall_number) {
     case SYS_HALT: {
       power_off();
@@ -138,11 +135,10 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       f->R.rax = dup2(oldfd, newfd);
       break;
     }
-    case SYS_MMAP: {
+    case sys_mmap {
       f->R.rax = sys_mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
       break;
-    }
-    default: {
+    } default: {
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
       thread_exit();
@@ -557,7 +553,7 @@ void* sys_mmap(void* addr, size_t length, int writable, int fd, off_t offset) {
   if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length)) return NULL;
   if (spt_find_page(&curr->spt, addr)) return NULL;
 
-  // fd 검증
+  // fd 검증하기
   if (fd < 2 || fd >= FDT_SIZE) {
     return NULL;
   }
