@@ -14,4 +14,5 @@ void process_activate(struct thread *next);
 struct page;
 bool lazy_load_segment(struct page *page, void *aux);
 #endif
+
 #endif /* userprog/process.h */

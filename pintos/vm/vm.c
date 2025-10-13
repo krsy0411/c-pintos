@@ -96,32 +96,23 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
 }
 
 struct page *spt_find_page(struct supplemental_page_table *spt, void *va) {
-  ASSERT(spt != NULL);
-  if (va == NULL) return NULL;
-
-  struct page temp_page;
-  temp_page.va = va;
-  struct hash_elem *e = hash_find(&spt->spt_hash, &temp_page.hash_elem);
-  if (e == NULL) return NULL;
-  return hash_entry(e, struct page, hash_elem);
+  struct page key;
+  key.va = pg_round_down(va);
+  struct hash_elem *e = hash_find(&spt->spt_hash, &key.hash_elem);
+  return e ? hash_entry(e, struct page, hash_elem) : NULL;
 }
 
-bool spt_insert_page(struct supplemental_page_table *spt, struct page *page) {
-  ASSERT(spt != NULL);
-  ASSERT(page != NULL);
-  ASSERT(page->va != NULL);
-
-  if (spt_find_page(spt, page->va) != NULL) return false;
-
-  hash_insert(&spt->spt_hash, &page->hash_elem);
-
-  return true;
+/* 넣기 */
+bool spt_insert_page(struct supplemental_page_table *spt, struct page *p) {
+  ASSERT(pg_ofs(p->va) == 0);
+  return hash_insert(&spt->spt_hash, &p->hash_elem) == NULL;
 }
 
-void spt_remove_page(struct supplemental_page_table *spt, struct page *page) {
-  vm_dealloc_page(page);
+/* 제거 */
+void spt_remove_page(struct supplemental_page_table *spt, struct page *p) {
+  hash_delete(&spt->spt_hash, &p->hash_elem);
+  vm_dealloc_page(p);  // 여기서 destroy+free까지 일관되게 처리되게
 }
-
 static struct frame *vm_get_victim(void) {
   struct frame *victim = NULL;
   /* TODO: The policy for eviction is up to you. */
@@ -154,53 +145,48 @@ static struct frame *vm_get_frame(void) {
 
   return frame;
 }
+static void vm_stack_growth(void *addr) {
+  void *stack_addr = pg_round_down(addr);
+  struct thread *curr = thread_current();
+  struct supplemental_page_table *spt = &curr->spt;
 
-static void vm_stack_growth(void *addr UNUSED) {}
+  if (spt_find_page(spt, stack_addr) != NULL) return;
 
-static bool vm_handle_wp(struct page *page UNUSED) {}
+  if (!vm_alloc_page(VM_ANON, stack_addr, true)) return;
 
-/*
- * 페이지 폴트가 발생했을 때, 처리 가능한 정상적인 폴트인지 판단하고 처리할 함수
- * f(인터럽트 프레임) : 페이지 폴트가 발생했을 때의 CPU 레지스터 상태
- * addr : 페이지 폴트가 발생한 가상 주소
- * user : 유저 모드에서 발생한 페이지 폴트인지 여부(커널 모드/유저 모드)
- * write : 쓰기 접근인지 여부(읽기/쓰기)
- * not_present : 페이지가 존재하지 않아서 발생한 폴트인지 여부(페이지 존재/권한)
- */
-bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
-                         bool write, bool not_present) {
-  struct supplemental_page_table *spt = &thread_current()->spt;
-  struct page *page = NULL;
-
-  // 폴트가 발생한 주소가 유효하지 않거나 커널 영역 주소라면 복구 대상이 아님
-
-  if ((addr == NULL) || !is_user_vaddr(addr)) return false;
-
-  // 주소는 유효하나 메모리에 없어서 생긴 페이지 폴트라면 복구 대상이 맞음
-  if (not_present) {
-    void *rsp = user ? f->rsp : thread_current()->user_rsp;
-
-    // 스택 확장으로 처리할 수 있는 폴트인 경우에 한해서만 vm_stack_growth를
-    // 호출
-    if ((USER_STACK - (1 << 20) <= rsp - 8 && rsp - 8 == addr) &&
-        (addr <= USER_STACK)) {
-      vm_stack_growth(addr);
-    } else if ((USER_STACK - (1 << 20) <= rsp) && (rsp <= addr) &&
-               (addr <= USER_STACK)) {
-      vm_stack_growth(addr);
+  if (!vm_claim_page(stack_addr)) {
+    struct page *failed = spt_find_page(spt, stack_addr);
+    if (failed != NULL) {
+      hash_delete(&spt->spt_hash, &failed->hash_elem);
+      vm_dealloc_page(failed);
     }
-
-    void *page_addr = pg_round_down(addr);
-    page = spt_find_page(spt, page_addr);
-
-    if (page == NULL) return false;
-    // 읽기 관련 정보 확인
-    if (write == 1 && page->writable == 0) return false;
-
-    return vm_do_claim_page(page);
+    return;
   }
 
-  return false;
+  struct page *page = spt_find_page(spt, stack_addr);
+  if (page != NULL) page->is_stack = true;
+}
+
+bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
+                         bool write, bool not_present) {
+  if (!addr || !is_user_vaddr(addr)) return false;
+
+  void *va = pg_round_down(addr);
+  if (!not_present) return false;  // WP 등은 여기서 false로 종료(테스트 요구)
+
+  void *rsp = user ? (void *)f->rsp : thread_current()->user_rsp;
+
+  if (rsp && va >= (void *)((uint8_t *)rsp - 32) && va < (void *)USER_STACK &&
+      va >= (void *)(USER_STACK - (1 << 20))) {
+    vm_stack_growth(va);
+  }
+
+  struct page *page = spt_find_page(&thread_current()->spt, va);
+  if (!page) return false;
+  if (write && !page->writable) return false;
+
+  if (page->frame == NULL) return vm_do_claim_page(page);
+  return true;
 }
 
 void vm_dealloc_page(struct page *page) {

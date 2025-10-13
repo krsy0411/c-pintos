@@ -10,6 +10,7 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "vm/vm.h"
+
 static bool file_backed_swap_in(struct page *page, void *kva);
 static bool file_backed_swap_out(struct page *page);
 static void file_backed_destroy(struct page *page);
@@ -26,11 +27,24 @@ static const struct page_operations file_ops = {
 void vm_file_init(void) {}
 
 /* Initialize the file backed page */
+
+/* 최소 구현: 스왑은 나중에. 지금은 메타데이터만 넣어두기 */
 bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
-  /* Set up the handler */
   page->operations = &file_ops;
 
-  struct file_page *file_page = &page->file;
+  struct segment_info *aux = (struct segment_info *)page->uninit.aux;
+  ASSERT(aux != NULL);
+
+  page->file.file = aux->file;  // file_reopen된 핸들 (공유)
+  page->file.ofs = aux->ofs;
+  page->file.read_bytes =
+      aux->page_read_bytes;  // 마지막 페이지 write-back에 필요
+  page->file.zero_bytes = aux->page_zero_bytes;
+
+  /* aux를 여기서 free 할지, lazy 로더에서 free 할지는 네 구현 한 군데로만! */
+  // free(aux);
+
+  return true;
 }
 
 /* Swap in the page by read contents from the file. */
@@ -58,6 +72,7 @@ void *do_mmap(void *addr, size_t length, int writable, struct file *file,
 
   void *start_addr = addr;
   size_t total_page_count = (length + PGSIZE - 1) / PGSIZE;
+
   off_t file_len = file_length(f);
   size_t read_bytes = (file_len < length) ? file_len : length;
   size_t zero_bytes = PGSIZE - (read_bytes % PGSIZE);
@@ -97,6 +112,9 @@ void *do_mmap(void *addr, size_t length, int writable, struct file *file,
       return NULL;
     }
 
+    struct page *p = spt_find_page(&thread_current()->spt, start_addr);
+    p->mapped_page_count = total_page_count;
+
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     addr += PGSIZE;
@@ -105,6 +123,38 @@ void *do_mmap(void *addr, size_t length, int writable, struct file *file,
 
   return start_addr;
 }
+/* Do the munmap */ /* Do the munmap */
+void do_munmap(void *addr) {
+  if (addr == NULL) return;
 
-/* Do the munmap */
-void do_munmap(void *addr) {}
+  struct thread *t = thread_current();
+  void *base = pg_round_down(addr);
+
+  struct page *first = spt_find_page(&t->spt, base);
+  if (first == NULL) return;
+
+  int total = first->mapped_page_count;
+  if (total <= 0) return;
+
+  /* file 포인터는 페이지 free 전에 백업해 둔다 */
+  struct file *file_to_close = first->file.file;
+
+  for (int i = 0; i < total; i++) {
+    void *va = base + (size_t)i * PGSIZE;
+    struct page *p = spt_find_page(&t->spt, va);
+    if (p == NULL) continue;
+
+    /* 파일 백드 + 더티면 파일에 반영 (read_bytes 만큼) */
+    if (VM_TYPE(p->operations->type) == VM_FILE) {
+      if (p->frame != NULL && pml4_is_dirty(t->pml4, p->va)) {
+        (void)file_write_at(p->file.file, p->frame->kva, p->file.read_bytes,
+                            p->file.ofs);
+        pml4_set_dirty(t->pml4, p->va, false);
+      }
+    }
+
+    /* 해시에서 제거 + 해제 : vm_dealloc_page() 직접 호출 말고 이걸로! */
+    spt_remove_page(&t->spt, p);
+    /* spt_remove_page 내부에서 pml4_clear_page, frame 반환, free 까지 처리 */
+  }
+}
