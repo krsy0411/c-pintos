@@ -135,10 +135,11 @@ void syscall_handler(struct intr_frame* f UNUSED) {
       f->R.rax = dup2(oldfd, newfd);
       break;
     }
-    case sys_mmap {
+    case SYS_MMAP: {
       f->R.rax = sys_mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
       break;
-    } default: {
+    }
+    default: {
       printf("system call 오류 : 알 수 없는 시스템콜 번호 %d\n",
              syscall_number);
       thread_exit();
