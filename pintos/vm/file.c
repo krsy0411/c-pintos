@@ -28,21 +28,16 @@ void vm_file_init(void) {}
 
 /* Initialize the file backed page */
 
-/* 최소 구현: 스왑은 나중에. 지금은 메타데이터만 넣어두기 */
 bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
   page->operations = &file_ops;
 
   struct segment_info *aux = (struct segment_info *)page->uninit.aux;
   ASSERT(aux != NULL);
 
-  page->file.file = aux->file;  // file_reopen된 핸들 (공유)
+  page->file.file = aux->file;
   page->file.ofs = aux->ofs;
-  page->file.read_bytes =
-      aux->page_read_bytes;  // 마지막 페이지 write-back에 필요
+  page->file.read_bytes = aux->page_read_bytes;
   page->file.zero_bytes = aux->page_zero_bytes;
-
-  /* aux를 여기서 free 할지, lazy 로더에서 free 할지는 네 구현 한 군데로만! */
-  // free(aux);
 
   return true;
 }
