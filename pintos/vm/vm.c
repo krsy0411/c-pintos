@@ -165,6 +165,7 @@ static void vm_stack_growth(void *addr) {
   if (page != NULL) page->is_stack = true;
 }
 
+
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present) {
   if (!addr || !is_user_vaddr(addr)) return false;
