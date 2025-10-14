@@ -1,5 +1,4 @@
 /* vm.c: Generic interface for virtual memory objects. */
-
 #include "vm/vm.h"
 
 #include <string.h>
@@ -9,7 +8,12 @@
 #include "threads/malloc.h"
 #include "threads/mmu.h"
 #include "vm/inspect.h"
-#include "vm/vm.h"
+
+static struct list frame_table;
+
+struct lock frame_lock;
+struct list_elem *next = NULL;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void vm_init(void) {
@@ -20,7 +24,9 @@ void vm_init(void) {
   pagecache_init();
 #endif
   register_inspect_intr();
-  /* TODO: Your code goes here. */
+
+  list_init(&frame_table);
+  lock_init(&frame_lock);
 }
 
 enum vm_type page_get_type(struct page *page) {
