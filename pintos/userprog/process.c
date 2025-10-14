@@ -835,7 +835,7 @@ static bool install_page(void* upage, void* kpage, bool writable) {
  * 페이지 폴트가 발생할 때 호출되는 함수
  * uninit_initialize() => lazy_load_segment()
  */
-static bool lazy_load_segment(struct page* page, void* aux) {
+bool lazy_load_segment(struct page* page, void* aux) {
   struct segment_info* info = (struct segment_info*)aux;
   struct file* file = info->file;
   off_t ofs = info->ofs;

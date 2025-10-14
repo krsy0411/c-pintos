@@ -212,6 +212,7 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
 
     void *page_addr = pg_round_down(addr);
     page = spt_find_page(spt, page_addr);
+
     if (page == NULL) return false;
     // 읽기 관련 정보 확인
     if (write == 1 && page->writable == 0) return false;
