@@ -29,15 +29,18 @@ void vm_file_init(void) {}
 /* Initialize the file backed page */
 
 bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
+  ASSERT(page != NULL);
+  ASSERT(VM_TYPE(type) == VM_FILE);
+
   page->operations = &file_ops;
 
-  struct segment_info *aux = (struct segment_info *)page->uninit.aux;
-  ASSERT(aux != NULL);
+  struct segment_info *info = (struct segment_info *)page->uninit.aux;
+  ASSERT(info != NULL);
 
-  page->file.file = aux->file;
-  page->file.ofs = aux->ofs;
-  page->file.read_bytes = aux->page_read_bytes;
-  page->file.zero_bytes = aux->page_zero_bytes;
+  page->file.file = info->file;
+  page->file.ofs = info->ofs;
+  page->file.read_bytes = info->page_read_bytes;
+  page->file.zero_bytes = info->page_zero_bytes;
 
   return true;
 }
