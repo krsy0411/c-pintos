@@ -1,7 +1,12 @@
 /* anon.c: Implementation of page for non-disk image (a.k.a. anonymous page). */
+#include <string.h>  // ← memset
+
 #include "devices/disk.h"
+#include "lib/kernel/bitmap.h"  // ← Pintos 경로
+#include "threads/malloc.h"
 #include "threads/mmu.h"
-#include "threads/thread.h"  // thread_current()
+#include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "vm/vm.h"
 
 /* DO NOT MODIFY BELOW LINE */
@@ -10,7 +15,6 @@ static bool anon_swap_in(struct page *page, void *kva);
 static bool anon_swap_out(struct page *page);
 static void anon_destroy(struct page *page);
 
-/* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
     .swap_in = anon_swap_in,
     .swap_out = anon_swap_out,
