@@ -155,7 +155,27 @@ static struct frame *vm_get_frame(void) {
   return frame;
 }
 
-static void vm_stack_growth(void *addr UNUSED) {}
+static void vm_stack_growth(void *addr) {
+  void *stack_addr = pg_round_down(addr);
+  struct thread *curr = thread_current();
+  struct supplemental_page_table *spt = &curr->spt;
+
+  if (spt_find_page(spt, stack_addr) != NULL) return;
+
+  if (!vm_alloc_page(VM_ANON, stack_addr, true)) return;
+
+  if (!vm_claim_page(stack_addr)) {
+    struct page *failed = spt_find_page(spt, stack_addr);
+    if (failed != NULL) {
+      hash_delete(&spt->spt_hash, &failed->hash_elem);
+      vm_dealloc_page(failed);
+    }
+    return;
+  }
+
+  struct page *page = spt_find_page(spt, stack_addr);
+  if (page != NULL) page->is_stack = true;
+}
 
 static bool vm_handle_wp(struct page *page UNUSED) {}
 
