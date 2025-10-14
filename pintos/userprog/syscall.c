@@ -61,6 +61,48 @@ void syscall_init(void) {
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
   lock_init(&filesys_lock);
 }
+// 버퍼의 모든 페이지가 유효한지 확인
+static bool check_buffer_valid(void* buffer, size_t size, bool n_write) {
+  if (buffer == NULL || size == 0) {
+    return false;
+  }
+
+  struct thread* curr = thread_current();
+  void* buffer_end = (uint8_t*)buffer + size - 1;
+  if (!is_user_vaddr(buffer) || !is_user_vaddr(buffer_end)) {
+    return false;
+  }
+  void* start = pg_round_down(buffer);
+  void* end = pg_round_down(buffer_end);
+
+  // 시작 페이지부터 끝 페이지까지 확인
+  for (void* page = start; page <= end; page += PGSIZE) {
+#ifdef VM
+    struct page* page_entry = spt_find_page(&curr->spt, page);
+    if (page_entry == NULL) {
+      return false;
+    }
+
+    // lazy load
+    if (page_entry->frame == NULL) {
+      if (!vm_claim_page(page)) {
+        return false;
+      }
+    }
+    // 쓰기 권한 확인
+    if (n_write && !page_entry->writable) {
+      return false;
+    }
+#else
+    void* kva = pml4_get_page(curr->pml4, page);
+    if (kva == NULL) {
+      return false;
+    }
+#endif
+  }
+
+  return true;
+}
 
 /* The main system call interface */
 void syscall_handler(struct intr_frame* f UNUSED) {
@@ -180,9 +222,9 @@ bool create(const char* file, unsigned initial_size) {
   if (fname_len == 0) {
     return false;
   }
-
+  lock_acquire(&filesys_lock);
   bool ok = filesys_create(fname, initial_size);
-
+  lock_release(&filesys_lock);
   return ok;
 }
 
@@ -203,145 +245,92 @@ bool remove(const char* file) {
   if (fname_len == 0) {
     return false;
   }
-
+  lock_acquire(&filesys_lock);
   bool ok = filesys_remove(fname);
+  lock_release(&filesys_lock);
   return ok;
 }
 
 void seek(int fd, unsigned position) {
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return;
+  if (fd < 2 || fd >= FDT_SIZE) return;
 
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
   if (file == NULL) return;
 
+  lock_acquire(&filesys_lock);
   file_seek(file, position);
+  lock_release(&filesys_lock);
 }
 
 unsigned tell(int fd) {
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
-
+  if (fd < 2 || fd >= FDT_SIZE) return -1;
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
-  if (file == NULL) return -1;
+  if (file == NULL || file == STDIN_MARKER || file == STDOUT_MARKER) return -1;
 
-  return file_tell(file);
+  lock_acquire(&filesys_lock);
+  unsigned pos = file_tell(file);
+  lock_release(&filesys_lock);
+
+  return pos;
 }
 
 int write(int fd, const void* buffer, unsigned size) {
   if (fd < 0 || fd >= FDT_SIZE) return -1;
-  if ((size == 0) || (buffer == NULL)) return 0;
-
-  const size_t CHUNK_SIZE = 4096;
+  if (size == 0) return 0;
+  // 모든 페이지 확인
+  if (!check_buffer_valid((void*)buffer, size, false)) {
+    exit(-1);
+  }
 
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
+
   if (file == NULL || file == STDIN_MARKER) return -1;
 
   if (file == STDOUT_MARKER) {
-    // 큰 데이터는 청크 단위로 나누어 출력
-
-    size_t remaining = size;
-    size_t offset = 0;
-
-    while (remaining > 0) {
-      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
-
-      void* kbuff = palloc_get_page(PAL_ZERO);
-      if (kbuff == NULL) {
-        exit(-1);
-      }
-
-      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
-        palloc_free_page(kbuff);
-        exit(-1);
-      }
-
-      putbuf(kbuff, chunk_size);
-      palloc_free_page(kbuff);
-
-      offset += chunk_size;
-      remaining -= chunk_size;
-    }
+    lock_acquire(&filesys_lock);
+    putbuf(buffer, size);
+    lock_release(&filesys_lock);
     return size;
   }
-  size_t remaining = size;
-  size_t offset = 0;
-  int total_written = 0;
 
-  while (remaining > 0) {
-    size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+  lock_acquire(&filesys_lock);
+  int b = file_write(file, buffer, size);
+  lock_release(&filesys_lock);
 
-    void* kbuff = palloc_get_page(PAL_ZERO);
-    if (kbuff == NULL) {
-      exit(-1);
-    }
-
-    if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
-      palloc_free_page(kbuff);
-      exit(-1);
-    }
-
-    int bytes_written = file_write(file, kbuff, chunk_size);
-    palloc_free_page(kbuff);
-
-    if (bytes_written != chunk_size) {
-      total_written += bytes_written;
-      break;
-    }
-
-    total_written += bytes_written;
-    offset += chunk_size;
-    remaining -= chunk_size;
-  }
-
-  return total_written;
+  return b;
 }
 
 int read(int fd, void* buffer, unsigned size) {
-  if (!fd || fd < 0 || fd >= FDT_SIZE) return -1;
-  int bytes_read = 0;
+  if (fd < 0 || fd >= FDT_SIZE) return -1;
+  if (size == 0) return 0;
+
+  if (!check_buffer_valid(buffer, size, true)) {
+    exit(-1);
+  }
+
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
   if (file == NULL || file == STDOUT_MARKER) return -1;
 
-  for (unsigned i = 0; i < size; i++) {
-    uint8_t* addr = (uint8_t*)buffer + i;
-
-    if (!is_user_vaddr(addr)) {
-      exit(-1);
-    }
-
-    void* kva = pml4_get_page(thread_current()->pml4, addr);
-#ifdef VM
-    if (kva == NULL) {
-      // page fault 처리 시도
-      if (!vm_try_handle_fault(NULL, (void*)addr, true, false, true)) {
-        exit(-1);
-      }
-      kva = pml4_get_page(thread_current()->pml4, addr);
-      if (kva == NULL) {
-        exit(-1);
-      }
-    }
-#else
-    if (kva == NULL) {
-      exit(-1);
-    }
-#endif
-  }
-  // 읽기
   if (file == STDIN_MARKER) {
+    lock_acquire(&filesys_lock);
     for (unsigned i = 0; i < size; i++) {
       *((uint8_t*)buffer + i) = (uint8_t)input_getc();
     }
+    lock_release(&filesys_lock);
     return size;
-  } else {
-    return file_read(file, buffer, size);
   }
+  lock_acquire(&filesys_lock);
+  int b = file_read(file, buffer, size);
+  lock_release(&filesys_lock);
+
+  return b;
 }
 
 int open(const char* file) {
@@ -353,8 +342,9 @@ int open(const char* file) {
   }
 
   kname[len] = '\0';
-
+  lock_acquire(&filesys_lock);
   struct file* f = filesys_open(kname);
+  lock_release(&filesys_lock);
 
   if (f == NULL) {
     return -1;
@@ -369,19 +359,24 @@ int open(const char* file) {
     }
   }
 
+  lock_acquire(&filesys_lock);
   file_close(f);
+  lock_release(&filesys_lock);
   return -1;
 }
 
 int filesize(int fd) {
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
-
+  if (fd < 2 || fd >= FDT_SIZE) return -1;
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
-  if (file == NULL) return -1;
+  if (file == NULL || file == STDIN_MARKER || file == STDOUT_MARKER) return -1;
 
-  return file_length(file);
+  lock_acquire(&filesys_lock);
+  int l = file_length(file);
+  lock_release(&filesys_lock);
+
+  return l;
 }
 
 void close(int fd) {
@@ -402,7 +397,9 @@ void close(int fd) {
   }
 
   if (file_should_close(file)) {
+    lock_acquire(&filesys_lock);
     file_close(file);
+    lock_release(&filesys_lock);
   }
 
   curr->fdt[fd] = NULL;
@@ -511,23 +508,60 @@ pid_t fork(const char* thread_name, struct intr_frame* if_) {
       !pml4_get_page(thread_current()->pml4, thread_name)) {
     exit(-1);
   }
-
-  // 2. 전체 문자열 유효성 검사
-  int len = 0;
-  int MAX_LEN = 16;  // 최대 길이 제한(16자)
-  while (len < MAX_LEN) {
-    if (!is_user_vaddr(thread_name + len) ||
-        !pml4_get_page(thread_current()->pml4, thread_name + len)) {
+  // 2. 첫번째 페이지 확인
+  char* kva = pml4_get_page(thread_current()->pml4, thread_name);
+#ifdef VM
+  if (kva == NULL) {
+    if (!vm_try_handle_fault(NULL, (void*)thread_name, true, false, true)) {
       exit(-1);
     }
+    kva = pml4_get_page(thread_current()->pml4, thread_name);
+    if (kva == NULL) {
+      exit(-1);
+    }
+  }
+#else
+  if (kva == NULL) {
+    exit(-1);
+  }
+#endif
+
+  // 전체 문자열 유효성 검사
+  int len = 0;
+  int MAX_LEN = 16;
+  while (len < MAX_LEN) {
+    if (!is_user_vaddr(thread_name + len)) {
+      exit(-1);
+    }
+
+    kva = pml4_get_page(thread_current()->pml4, thread_name + len);
+#ifdef VM
+    if (kva == NULL) {
+      if (!vm_try_handle_fault(NULL, (void*)(thread_name + len), true, false,
+                               true)) {
+        exit(-1);
+      }
+      kva = pml4_get_page(thread_current()->pml4, thread_name + len);
+      if (kva == NULL) {
+        exit(-1);
+      }
+    }
+#else
+    if (kva == NULL) {
+      exit(-1);
+    }
+#endif
+
     if (thread_name[len] == '\0') break;
     len++;
   }
 
-  // 3. 자식 프로세스 생성 (올바른 인터럽트 프레임 전달)
-  pid_t child_pid = process_fork(thread_name, if_);
+  if (len == MAX_LEN) {
+    exit(-1);
+  }
 
-  return child_pid;
+  // 자식 프로세스 생성
+  return process_fork(thread_name, if_);
 }
 
 int wait(pid_t pid) { return process_wait(pid); }
