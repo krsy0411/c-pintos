@@ -1,7 +1,12 @@
 /* anon.c: Implementation of page for non-disk image (a.k.a. anonymous page). */
+#include <string.h>  // ← memset
+
 #include "devices/disk.h"
+#include "lib/kernel/bitmap.h"  // ← Pintos 경로
+#include "threads/malloc.h"
 #include "threads/mmu.h"
-#include "threads/thread.h"  // thread_current()
+#include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "vm/vm.h"
 
 /* DO NOT MODIFY BELOW LINE */
@@ -10,7 +15,6 @@ static bool anon_swap_in(struct page *page, void *kva);
 static bool anon_swap_out(struct page *page);
 static void anon_destroy(struct page *page);
 
-/* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
     .swap_in = anon_swap_in,
     .swap_out = anon_swap_out,
@@ -18,26 +22,30 @@ static const struct page_operations anon_ops = {
     .type = VM_ANON,
 };
 
+#define SECTOR_PER_PAGE (PGSIZE / DISK_SECTOR_SIZE)
+
+static struct bitmap *swap_bitmap;
+static struct lock swap_lock;
+
 /* Initialize the data for anonymous pages */
 void vm_anon_init(void) {
-  /* TODO: Set up the swap_disk. */
-  swap_disk = NULL;
+  swap_disk = disk_get(1, 1);
+  ASSERT(swap_disk != NULL);
+
+  size_t slots = disk_size(swap_disk) / SECTOR_PER_PAGE;
+  swap_bitmap = bitmap_create(slots);
+  ASSERT(swap_bitmap != NULL);
+
+  lock_init(&swap_lock);
 }
 
-/* Initialize the file mapping */
-/* 익명 페이지(VM_ANON)의 초기화 인자로 사용되는 함수 */
+/* 익명 페이지 초기화 */
 bool anon_initializer(struct page *page, enum vm_type type, void *kva) {
-  ASSERT(type == VM_ANON);
-  ASSERT(page->frame != NULL);
-
-  /* Set up the handler */
+  ASSERT(VM_TYPE(type) == VM_ANON);
   page->operations = &anon_ops;
 
   struct anon_page *anon_page = &page->anon;
-  /*
-   * TODO : Swap 구현할 때 필요한 초기화 코드 추가할 것
-   * (anon_page 필드 추가도 포함해서)
-   */
+  anon_page->slot_no = BITMAP_ERROR;
 
   return true;
 }

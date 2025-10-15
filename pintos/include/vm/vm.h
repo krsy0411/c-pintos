@@ -1,8 +1,8 @@
 #ifndef VM_VM_H
 #define VM_VM_H
-#include <hash.h>
 #include <stdbool.h>
 
+#include "hash.h"
 #include "threads/palloc.h"
 enum vm_type {
   /* page not initialized */
@@ -73,6 +73,13 @@ struct page {
 struct frame {
   void *kva;
   struct page *page;
+  struct list_elem elem;
+};
+// 스왑 영역을 관리하기 위한 슬롯 구조체
+struct slot {
+  struct page *page;
+  uint32_t slot_no;
+  struct list_elem swap_elem;
 };
 
 /* The function table for page operations.
@@ -128,4 +135,6 @@ uint64_t spt_hash_func(const struct hash_elem *e, void *aux);
 
 bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b,
                    void *aux);
+extern struct list swap_table;
+extern struct lock swap_table_lock;
 #endif /* VM_VM_H */
