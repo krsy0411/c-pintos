@@ -41,7 +41,6 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-bool copy_in(void* dst, const void* usrc, size_t size);
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len);
 static struct lock filesys_lock;
 int exec(const char* cmd_line);
@@ -180,9 +179,9 @@ bool create(const char* file, unsigned initial_size) {
   if (fname_len == 0) {
     return false;
   }
-
+  lock_acquire(&filesys_lock);
   bool ok = filesys_create(fname, initial_size);
-
+  lock_release(&filesys_lock);
   return ok;
 }
 
@@ -203,145 +202,149 @@ bool remove(const char* file) {
   if (fname_len == 0) {
     return false;
   }
-
+  lock_acquire(&filesys_lock);
   bool ok = filesys_remove(fname);
+  lock_release(&filesys_lock);
   return ok;
 }
 
 void seek(int fd, unsigned position) {
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return;
+  if (fd < 2 || fd >= FDT_SIZE) return;
 
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
   if (file == NULL) return;
 
+  lock_acquire(&filesys_lock);
   file_seek(file, position);
+  lock_release(&filesys_lock);
 }
 
 unsigned tell(int fd) {
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
-
+  if (fd < 2 || fd >= FDT_SIZE) return -1;
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
-  if (file == NULL) return -1;
+  if (file == NULL || file == STDIN_MARKER || file == STDOUT_MARKER) return -1;
 
-  return file_tell(file);
+  lock_acquire(&filesys_lock);
+  unsigned pos = file_tell(file);
+  lock_release(&filesys_lock);
+
+  return pos;
 }
 
 int write(int fd, const void* buffer, unsigned size) {
   if (fd < 0 || fd >= FDT_SIZE) return -1;
-  if ((size == 0) || (buffer == NULL)) return 0;
-
-  const size_t CHUNK_SIZE = 4096;
-
+  if (size == 0) return 0;
+  // 모든 페이지 확인
+  if (buffer == NULL || !is_user_vaddr(buffer)) {
+    exit(-1);
+  }
+  void* buffer_end = (uint8_t*)buffer + size - 1;
+  if (!is_user_vaddr(buffer_end)) {
+    exit(-1);
+  }
   struct thread* curr = thread_current();
+  void* pml4 = curr->pml4;
+  void* start_page = pg_round_down(buffer);
+  void* end_page = pg_round_down(buffer_end);
+
+  for (void* page = start_page; page <= end_page; page += PGSIZE) {
+#ifdef VM
+    struct page* page_entry = spt_find_page(&curr->spt, page);
+    if (page_entry == NULL) {
+      exit(-1);
+    }
+
+    // lazy load
+    if (page_entry->frame == NULL) {
+      if (!vm_claim_page(page)) {
+        exit(-1);
+      }
+    }
+
+#else
+    void* pml4 = curr->pml4;
+    char* kva = pml4_get_page(pml4, page);
+    if (kva == NULL) exit(-1);
+#endif
+  }
   struct file* file = curr->fdt[fd];
   if (file == NULL || file == STDIN_MARKER) return -1;
-
   if (file == STDOUT_MARKER) {
-    // 큰 데이터는 청크 단위로 나누어 출력
-
-    size_t remaining = size;
-    size_t offset = 0;
-
-    while (remaining > 0) {
-      size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
-
-      void* kbuff = palloc_get_page(PAL_ZERO);
-      if (kbuff == NULL) {
-        exit(-1);
-      }
-
-      if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
-        palloc_free_page(kbuff);
-        exit(-1);
-      }
-
-      putbuf(kbuff, chunk_size);
-      palloc_free_page(kbuff);
-
-      offset += chunk_size;
-      remaining -= chunk_size;
-    }
+    lock_acquire(&filesys_lock);
+    putbuf(buffer, size);
+    lock_release(&filesys_lock);
     return size;
   }
-  size_t remaining = size;
-  size_t offset = 0;
-  int total_written = 0;
 
-  while (remaining > 0) {
-    size_t chunk_size = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+  lock_acquire(&filesys_lock);
+  int b = file_write(file, buffer, size);
+  lock_release(&filesys_lock);
 
-    void* kbuff = palloc_get_page(PAL_ZERO);
-    if (kbuff == NULL) {
-      exit(-1);
-    }
-
-    if (!copy_in(kbuff, (const char*)buffer + offset, chunk_size)) {
-      palloc_free_page(kbuff);
-      exit(-1);
-    }
-
-    int bytes_written = file_write(file, kbuff, chunk_size);
-    palloc_free_page(kbuff);
-
-    if (bytes_written != chunk_size) {
-      total_written += bytes_written;
-      break;
-    }
-
-    total_written += bytes_written;
-    offset += chunk_size;
-    remaining -= chunk_size;
-  }
-
-  return total_written;
+  return b;
 }
 
 int read(int fd, void* buffer, unsigned size) {
-  if (!fd || fd < 0 || fd >= FDT_SIZE) return -1;
-  int bytes_read = 0;
+  if (fd < 0 || fd >= FDT_SIZE) return -1;
+  if (size == 0) return 0;
+
+  if (buffer == NULL || !is_user_vaddr(buffer)) {
+    exit(-1);
+  }
+  void* buffer_end = (uint8_t*)buffer + size - 1;
+  if (!is_user_vaddr(buffer_end)) {
+    exit(-1);
+  }
+
   struct thread* curr = thread_current();
+  void* start_page = pg_round_down(buffer);
+  void* end_page = pg_round_down(buffer_end);
+
+  for (void* page = start_page; page <= end_page; page += PGSIZE) {
+#ifdef VM
+    struct page* page_entry = spt_find_page(&curr->spt, page);
+    if (page_entry == NULL) {
+      exit(-1);
+    }
+
+    // lazy load
+    if (page_entry->frame == NULL) {
+      if (!vm_claim_page(page)) {
+        exit(-1);
+      }
+    }
+
+    // 쓰기 권한 확인
+    if (!page_entry->writable) {
+      exit(-1);
+    }
+#else
+    void* pml4 = curr->pml4;
+    char* kva = pml4_get_page(pml4, page);
+    if (kva == NULL) exit(-1);
+#endif
+  }
+
   struct file* file = curr->fdt[fd];
 
   if (file == NULL || file == STDOUT_MARKER) return -1;
 
-  for (unsigned i = 0; i < size; i++) {
-    uint8_t* addr = (uint8_t*)buffer + i;
-
-    if (!is_user_vaddr(addr)) {
-      exit(-1);
-    }
-
-    void* kva = pml4_get_page(thread_current()->pml4, addr);
-#ifdef VM
-    if (kva == NULL) {
-      // page fault 처리 시도
-      if (!vm_try_handle_fault(NULL, (void*)addr, true, false, true)) {
-        exit(-1);
-      }
-      kva = pml4_get_page(thread_current()->pml4, addr);
-      if (kva == NULL) {
-        exit(-1);
-      }
-    }
-#else
-    if (kva == NULL) {
-      exit(-1);
-    }
-#endif
-  }
-  // 읽기
   if (file == STDIN_MARKER) {
-    for (unsigned i = 0; i < size; i++) {
+    lock_acquire(&filesys_lock);
+    for (unsigned i = 0; i < size; i++)
       *((uint8_t*)buffer + i) = (uint8_t)input_getc();
-    }
+    lock_release(&filesys_lock);
     return size;
-  } else {
-    return file_read(file, buffer, size);
   }
+
+  lock_acquire(&filesys_lock);
+  int b = file_read(file, buffer, size);
+  lock_release(&filesys_lock);
+
+  return b;
 }
 
 int open(const char* file) {
@@ -353,8 +356,9 @@ int open(const char* file) {
   }
 
   kname[len] = '\0';
-
+  lock_acquire(&filesys_lock);
   struct file* f = filesys_open(kname);
+  lock_release(&filesys_lock);
 
   if (f == NULL) {
     return -1;
@@ -369,19 +373,24 @@ int open(const char* file) {
     }
   }
 
+  lock_acquire(&filesys_lock);
   file_close(f);
+  lock_release(&filesys_lock);
   return -1;
 }
 
 int filesize(int fd) {
-  if (!fd || fd < 2 || fd >= FDT_SIZE) return -1;
-
+  if (fd < 2 || fd >= FDT_SIZE) return -1;
   struct thread* curr = thread_current();
   struct file* file = curr->fdt[fd];
 
-  if (file == NULL) return -1;
+  if (file == NULL || file == STDIN_MARKER || file == STDOUT_MARKER) return -1;
 
-  return file_length(file);
+  lock_acquire(&filesys_lock);
+  int l = file_length(file);
+  lock_release(&filesys_lock);
+
+  return l;
 }
 
 void close(int fd) {
@@ -402,7 +411,9 @@ void close(int fd) {
   }
 
   if (file_should_close(file)) {
+    lock_acquire(&filesys_lock);
     file_close(file);
+    lock_release(&filesys_lock);
   }
 
   curr->fdt[fd] = NULL;
@@ -419,40 +430,6 @@ int exec(const char* cmd_line) {
   kernel_file[i] = '\0';
 
   process_exec(kernel_file);
-}
-
-/* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
-   성공하면 true, 실패하면 false를 반환한다. */
-bool copy_in(void* dst, const void* usrc, size_t size) {
-  for (size_t i = 0; i < size; i++) {
-    const void* user_addr = (const char*)usrc + i;
-
-    if (!is_user_vaddr(user_addr)) {
-      return false;
-    }
-
-    struct thread* curr = thread_current();
-    void* pml4 = curr->pml4;
-    void* kva = pml4_get_page(pml4, user_addr);
-#ifdef VM
-    if (kva == NULL) {
-      if (!vm_try_handle_fault(NULL, (void*)user_addr, true, false, true)) {
-        return false;
-      }
-      kva = pml4_get_page(pml4, user_addr);
-      if (kva == NULL) {
-        return false;
-      }
-    }
-#else
-    if (kva == NULL) {
-      return false;
-    }
-#endif
-
-    ((char*)dst)[i] = *(char*)kva;
-  }
-  return true;
 }
 
 /*
@@ -506,28 +483,12 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
 }
 
 pid_t fork(const char* thread_name, struct intr_frame* if_) {
-  // 1. 주소 유효성 검사
-  if (thread_name == NULL || !is_user_vaddr(thread_name) ||
-      !pml4_get_page(thread_current()->pml4, thread_name)) {
+  if (thread_name == NULL || !is_user_vaddr(thread_name)) {
     exit(-1);
   }
 
-  // 2. 전체 문자열 유효성 검사
-  int len = 0;
-  int MAX_LEN = 16;  // 최대 길이 제한(16자)
-  while (len < MAX_LEN) {
-    if (!is_user_vaddr(thread_name + len) ||
-        !pml4_get_page(thread_current()->pml4, thread_name + len)) {
-      exit(-1);
-    }
-    if (thread_name[len] == '\0') break;
-    len++;
-  }
-
-  // 3. 자식 프로세스 생성 (올바른 인터럽트 프레임 전달)
-  pid_t child_pid = process_fork(thread_name, if_);
-
-  return child_pid;
+  // 자식 프로세스 생성
+  return process_fork(thread_name, if_);
 }
 
 int wait(pid_t pid) { return process_wait(pid); }
