@@ -41,7 +41,6 @@ int write(int fd, const void* buffer, unsigned size);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-bool copy_in(void* dst, const void* usrc, size_t size);
 bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len);
 static struct lock filesys_lock;
 int exec(const char* cmd_line);
@@ -60,48 +59,6 @@ void syscall_init(void) {
   write_msr(MSR_SYSCALL_MASK,
             FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
   lock_init(&filesys_lock);
-}
-// 버퍼의 모든 페이지가 유효한지 확인
-static bool check_buffer_valid(void* buffer, size_t size, bool n_write) {
-  if (buffer == NULL || size == 0) {
-    return false;
-  }
-
-  struct thread* curr = thread_current();
-  void* buffer_end = (uint8_t*)buffer + size - 1;
-  if (!is_user_vaddr(buffer) || !is_user_vaddr(buffer_end)) {
-    return false;
-  }
-  void* start = pg_round_down(buffer);
-  void* end = pg_round_down(buffer_end);
-
-  // 시작 페이지부터 끝 페이지까지 확인
-  for (void* page = start; page <= end; page += PGSIZE) {
-#ifdef VM
-    struct page* page_entry = spt_find_page(&curr->spt, page);
-    if (page_entry == NULL) {
-      return false;
-    }
-
-    // lazy load
-    if (page_entry->frame == NULL) {
-      if (!vm_claim_page(page)) {
-        return false;
-      }
-    }
-    // 쓰기 권한 확인
-    if (n_write && !page_entry->writable) {
-      return false;
-    }
-#else
-    void* kva = pml4_get_page(curr->pml4, page);
-    if (kva == NULL) {
-      return false;
-    }
-#endif
-  }
-
-  return true;
 }
 
 /* The main system call interface */
@@ -282,15 +239,40 @@ int write(int fd, const void* buffer, unsigned size) {
   if (fd < 0 || fd >= FDT_SIZE) return -1;
   if (size == 0) return 0;
   // 모든 페이지 확인
-  if (!check_buffer_valid((void*)buffer, size, false)) {
+  if (buffer == NULL || !is_user_vaddr(buffer)) {
     exit(-1);
   }
-
+  void* buffer_end = (uint8_t*)buffer + size - 1;
+  if (!is_user_vaddr(buffer_end)) {
+    exit(-1);
+  }
   struct thread* curr = thread_current();
+  void* pml4 = curr->pml4;
+  void* start_page = pg_round_down(buffer);
+  void* end_page = pg_round_down(buffer_end);
+
+  for (void* page = start_page; page <= end_page; page += PGSIZE) {
+#ifdef VM
+    struct page* page_entry = spt_find_page(&curr->spt, page);
+    if (page_entry == NULL) {
+      exit(-1);
+    }
+
+    // lazy load
+    if (page_entry->frame == NULL) {
+      if (!vm_claim_page(page)) {
+        exit(-1);
+      }
+    }
+
+#else
+    void* pml4 = curr->pml4;
+    char* kva = pml4_get_page(pml4, page);
+    if (kva == NULL) exit(-1);
+#endif
+  }
   struct file* file = curr->fdt[fd];
-
   if (file == NULL || file == STDIN_MARKER) return -1;
-
   if (file == STDOUT_MARKER) {
     lock_acquire(&filesys_lock);
     putbuf(buffer, size);
@@ -309,23 +291,55 @@ int read(int fd, void* buffer, unsigned size) {
   if (fd < 0 || fd >= FDT_SIZE) return -1;
   if (size == 0) return 0;
 
-  if (!check_buffer_valid(buffer, size, true)) {
+  if (buffer == NULL || !is_user_vaddr(buffer)) {
+    exit(-1);
+  }
+  void* buffer_end = (uint8_t*)buffer + size - 1;
+  if (!is_user_vaddr(buffer_end)) {
     exit(-1);
   }
 
   struct thread* curr = thread_current();
+  void* start_page = pg_round_down(buffer);
+  void* end_page = pg_round_down(buffer_end);
+
+  for (void* page = start_page; page <= end_page; page += PGSIZE) {
+#ifdef VM
+    struct page* page_entry = spt_find_page(&curr->spt, page);
+    if (page_entry == NULL) {
+      exit(-1);
+    }
+
+    // lazy load
+    if (page_entry->frame == NULL) {
+      if (!vm_claim_page(page)) {
+        exit(-1);
+      }
+    }
+
+    // 쓰기 권한 확인
+    if (!page_entry->writable) {
+      exit(-1);
+    }
+#else
+    void* pml4 = curr->pml4;
+    char* kva = pml4_get_page(pml4, page);
+    if (kva == NULL) exit(-1);
+#endif
+  }
+
   struct file* file = curr->fdt[fd];
 
   if (file == NULL || file == STDOUT_MARKER) return -1;
 
   if (file == STDIN_MARKER) {
     lock_acquire(&filesys_lock);
-    for (unsigned i = 0; i < size; i++) {
+    for (unsigned i = 0; i < size; i++)
       *((uint8_t*)buffer + i) = (uint8_t)input_getc();
-    }
     lock_release(&filesys_lock);
     return size;
   }
+
   lock_acquire(&filesys_lock);
   int b = file_read(file, buffer, size);
   lock_release(&filesys_lock);
@@ -418,40 +432,6 @@ int exec(const char* cmd_line) {
   process_exec(kernel_file);
 }
 
-/* 유저 포인터 `usrc`로부터 size 바이트를 커널 버퍼 `dst`로 복사한다.
-   성공하면 true, 실패하면 false를 반환한다. */
-bool copy_in(void* dst, const void* usrc, size_t size) {
-  for (size_t i = 0; i < size; i++) {
-    const void* user_addr = (const char*)usrc + i;
-
-    if (!is_user_vaddr(user_addr)) {
-      return false;
-    }
-
-    struct thread* curr = thread_current();
-    void* pml4 = curr->pml4;
-    void* kva = pml4_get_page(pml4, user_addr);
-#ifdef VM
-    if (kva == NULL) {
-      if (!vm_try_handle_fault(NULL, (void*)user_addr, true, false, true)) {
-        return false;
-      }
-      kva = pml4_get_page(pml4, user_addr);
-      if (kva == NULL) {
-        return false;
-      }
-    }
-#else
-    if (kva == NULL) {
-      return false;
-    }
-#endif
-
-    ((char*)dst)[i] = *(char*)kva;
-  }
-  return true;
-}
-
 /*
  * copy_in_string()
  * - 유저 포인터 us가 가리키는 NUL-종단 문자열을 커널 버퍼 dst로 복사한다.
@@ -503,60 +483,7 @@ bool copy_in_string(char* dst, const char* us, size_t dst_sz, size_t* out_len) {
 }
 
 pid_t fork(const char* thread_name, struct intr_frame* if_) {
-  // 1. 주소 유효성 검사
-  if (thread_name == NULL || !is_user_vaddr(thread_name) ||
-      !pml4_get_page(thread_current()->pml4, thread_name)) {
-    exit(-1);
-  }
-  // 2. 첫번째 페이지 확인
-  char* kva = pml4_get_page(thread_current()->pml4, thread_name);
-#ifdef VM
-  if (kva == NULL) {
-    if (!vm_try_handle_fault(NULL, (void*)thread_name, true, false, true)) {
-      exit(-1);
-    }
-    kva = pml4_get_page(thread_current()->pml4, thread_name);
-    if (kva == NULL) {
-      exit(-1);
-    }
-  }
-#else
-  if (kva == NULL) {
-    exit(-1);
-  }
-#endif
-
-  // 전체 문자열 유효성 검사
-  int len = 0;
-  int MAX_LEN = 16;
-  while (len < MAX_LEN) {
-    if (!is_user_vaddr(thread_name + len)) {
-      exit(-1);
-    }
-
-    kva = pml4_get_page(thread_current()->pml4, thread_name + len);
-#ifdef VM
-    if (kva == NULL) {
-      if (!vm_try_handle_fault(NULL, (void*)(thread_name + len), true, false,
-                               true)) {
-        exit(-1);
-      }
-      kva = pml4_get_page(thread_current()->pml4, thread_name + len);
-      if (kva == NULL) {
-        exit(-1);
-      }
-    }
-#else
-    if (kva == NULL) {
-      exit(-1);
-    }
-#endif
-
-    if (thread_name[len] == '\0') break;
-    len++;
-  }
-
-  if (len == MAX_LEN) {
+  if (thread_name == NULL || !is_user_vaddr(thread_name)) {
     exit(-1);
   }
 
