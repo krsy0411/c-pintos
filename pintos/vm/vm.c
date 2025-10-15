@@ -119,36 +119,52 @@ void spt_remove_page(struct supplemental_page_table *spt, struct page *p) {
 }
 static struct frame *vm_get_victim(void) {
   struct frame *victim = NULL;
-  /* TODO: The policy for eviction is up to you. */
+  /** Project 3-Swap In/Out */
+  lock_acquire(&frame_lock);
+  for (next = list_begin(&frame_table); next != list_end(&frame_table);
+       next = list_next(next)) {
+    victim = list_entry(next, struct frame, elem);
+    if (pml4_is_accessed(thread_current()->pml4, victim->page->va))
+      pml4_set_accessed(thread_current()->pml4, victim->page->va, false);
+    else {
+      lock_release(&frame_lock);
+      return victim;
+    }
+  }
+  lock_release(&frame_lock);
   return victim;
 }
 
 static struct frame *vm_evict_frame(void) {
   struct frame *victim = vm_get_victim();
-  /* TODO: swap out the victim and return the evicted frame. */
-  return NULL;
+  ASSERT(victim && victim->page);
+
+  if (!swap_out(victim->page)) PANIC("swap_out failed");
+  victim->page = NULL;
+
+  lock_acquire(&frame_lock);
+  list_push_back(&frame_table, &victim->elem);
+  lock_release(&frame_lock);
+  return victim;
 }
 
-/* 물리 프레임 할당 */
 static struct frame *vm_get_frame(void) {
-  // user pool에서 new physical page 할당 받아 커널 가상주소에 kva 저장됨
   void *kva = palloc_get_page(PAL_USER);
-
-  // kva 가 NULL 이라면 사용자 풀에 더 이상 가용 페이지가 없다는 뜻
-  if (kva == NULL) {
-    // 나중에 스왑 아웃 로직 구현 필요
-    PANIC("todo");
+  if (kva) {
+    struct frame *f = malloc(sizeof *f);
+    ASSERT(f);
+    f->kva = kva;
+    f->page = NULL;
+    lock_acquire(&frame_lock);
+    list_push_back(&frame_table, &f->elem);
+    lock_release(&frame_lock);
+    return f;
   }
-
-  // physical page 관리할 frame 구조체를 위해 메모리 할당
-  struct frame *frame = malloc(sizeof(struct frame));
-
-  ASSERT(frame != NULL);  // 할당 성공 했는지 체크
-  frame->kva = kva;       // frame member 초기화
-  frame->page = NULL;
-
-  return frame;
+  struct frame *victim = vm_evict_frame();
+  ASSERT(victim && victim->kva);
+  return victim;
 }
+
 static void vm_stack_growth(void *addr) {
   void *stack_addr = pg_round_down(addr);
   struct thread *curr = thread_current();
@@ -170,7 +186,6 @@ static void vm_stack_growth(void *addr) {
   struct page *page = spt_find_page(spt, stack_addr);
   if (page != NULL) page->is_stack = true;
 }
-
 
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
                          bool write, bool not_present) {
