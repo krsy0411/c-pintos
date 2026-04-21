@@ -31,3 +31,6 @@ core
 
 # VSCode
 .vscode/
+
+# Claude Code (per-user 설정)
+.claude/settings.local.json
